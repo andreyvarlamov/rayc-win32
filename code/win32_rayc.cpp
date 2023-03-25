@@ -21,7 +21,7 @@ typedef i32 bool32;
 
 #define Assert(Expression) if (!(Expression)) {*(int *)0 = 0;}
 
-struct game_bitmap
+struct game_offscreen_buffer
 {
     void *Data;
     int Width;
@@ -46,52 +46,7 @@ struct game_state
 
 #include <windows.h>
 
-struct win32_dib
-{
-    BITMAPINFO Info;
-    game_bitmap Bitmap;
-};
-
-global_variable win32_dib GlobalWin32DIB;
 global_variable bool32 GlobalRunning;
-
-internal void
-Win32ResizeDIBSection(win32_dib *Win32DIB, int Width, int Height)
-{
-    game_bitmap *Bitmap = &Win32DIB->Bitmap;
-    BITMAPINFO *Info = &Win32DIB->Info;
-    
-    if (Bitmap->Data)
-    {
-        VirtualFree(Bitmap->Data, 0, MEM_RELEASE);
-    }
-
-    Bitmap->Width = Width;
-    Bitmap->Height = Height;
-    Bitmap->BytesPerPixel = 4;
-    Bitmap->Pitch = Bitmap->Width * Bitmap->BytesPerPixel;
-
-    Info->bmiHeader.biSize = sizeof(Info->bmiHeader);
-    Info->bmiHeader.biWidth = Bitmap->Width;
-    Info->bmiHeader.biHeight = - Bitmap->Height;
-    Info->bmiHeader.biPlanes = 1;
-    Info->bmiHeader.biBitCount = 32;
-    Info->bmiHeader.biCompression = BI_RGB;
-
-    int BitmapSize = (Bitmap->Width * Bitmap->Height) * Bitmap->BytesPerPixel;
-    Bitmap->Data = VirtualAlloc(0, BitmapSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-}
-
-internal void
-Win32RenderDIB(win32_dib *Win32DIB, HDC DeviceContext)
-{
-    StretchDIBits(DeviceContext,
-                  0, 0, Win32DIB->Bitmap.Width, Win32DIB->Bitmap.Height,
-                  0, 0, Win32DIB->Bitmap.Width, Win32DIB->Bitmap.Height,
-                  Win32DIB->Bitmap.Data,
-                  &Win32DIB->Info,
-                  DIB_RGB_COLORS, SRCCOPY);
-}
 
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window,
@@ -111,29 +66,6 @@ Win32MainWindowCallback(HWND Window,
         case WM_DESTROY:
         {
             GlobalRunning = false;
-        } break;
-
-        case WM_SYSKEYDOWN:
-        case WM_SYSKEYUP:
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-        {
-            Assert(!"Keyboard input came in through a non-dispatch message!");
-        } break;
-
-        case WM_PAINT:
-        {
-            PAINTSTRUCT Paint;
-            HDC DeviceContext = BeginPaint(Window, &Paint);
-
-            RECT ClientRect;
-            GetClientRect(Window, &ClientRect);;
-            int WindowWidth = ClientRect.right - ClientRect.left;
-            int WindowHeight = ClientRect.bottom - ClientRect.top;
-
-            Win32RenderDIB(&GlobalWin32DIB, DeviceContext);
-           
-            EndPaint(Window, &Paint);
         } break;
 
         default:
@@ -209,7 +141,8 @@ WinMain(HINSTANCE Instance,
         LPSTR CommandLine,
         int ShowCode)
 {
-    Win32ResizeDIBSection(&GlobalWin32DIB, 1600, 900);
+    int ClientWidth = 1600;
+    int ClientHeight = 900;
     
     WNDCLASSA WindowClass = {};
     WindowClass.style = CS_HREDRAW|CS_VREDRAW;
@@ -224,8 +157,8 @@ WinMain(HINSTANCE Instance,
         RECT WindowRect;
         WindowRect.left = 0;
         WindowRect.top = 0;
-        WindowRect.right = 1600;
-        WindowRect.bottom = 900;
+        WindowRect.right = ClientWidth;
+        WindowRect.bottom = ClientHeight;
         // TODO: Log failure instead of assert
         Assert(AdjustWindowRect(&WindowRect, WindowStyle, 0));
         int WindowWidth = WindowRect.right - WindowRect.left;
@@ -246,6 +179,22 @@ WinMain(HINSTANCE Instance,
 
         if (Window)
         {
+            game_offscreen_buffer GameBuffer = {};
+            GameBuffer.Width = ClientWidth;
+            GameBuffer.Height = ClientHeight;
+            GameBuffer.BytesPerPixel = 4;
+            GameBuffer.Pitch = GameBuffer.Width * GameBuffer.BytesPerPixel;
+            int GameBufferSize = (GameBuffer.Width * GameBuffer.Height) * GameBuffer.BytesPerPixel;
+            GameBuffer.Data = VirtualAlloc(0, GameBufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            
+            BITMAPINFO BitmapInfo = {};
+            BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader);
+            BitmapInfo.bmiHeader.biWidth = GameBuffer.Width;
+            BitmapInfo.bmiHeader.biHeight = - GameBuffer.Height;
+            BitmapInfo.bmiHeader.biPlanes = 1;
+            BitmapInfo.bmiHeader.biBitCount = 32;
+            BitmapInfo.bmiHeader.biCompression = BI_RGB;
+            
             game_input InputData = {};
             game_state GameState = {};
             
@@ -254,18 +203,14 @@ WinMain(HINSTANCE Instance,
             {
                 Win32ProcessPendingMessage(&InputData);
 
-                //GameUpdateAndRender(&InputData, &GlobalWin32DIB.Bitmap);
-
-                game_bitmap *Bitmap = &GlobalWin32DIB.Bitmap;
-
-                u8 *Row = (u8 *)Bitmap->Data;
+                u8 *Row = (u8 *)GameBuffer.Data;
                 for (int Y = 0;
-                     Y < Bitmap->Height;
+                     Y < GameBuffer.Height;
                      ++Y)
                 {
                     u32 *Pixel = (u32 *)Row;
                     for (int X = 0;
-                         X < Bitmap->Width;
+                         X < GameBuffer.Width;
                          ++X)
                     {
                         u8 Blue = (u8)(X + GameState.BlueOffset);
@@ -274,14 +219,19 @@ WinMain(HINSTANCE Instance,
                         *Pixel++ = ((Green << 8) | Blue);
                     }
 
-                    Row += Bitmap->Pitch;
+                    Row += GameBuffer.Pitch;
                 }
 
                 ++GameState.BlueOffset;
                 ++GameState.GreenOffset;
                 
                 HDC DeviceContext = GetDC(Window);
-                Win32RenderDIB(&GlobalWin32DIB, DeviceContext);
+                StretchDIBits(DeviceContext,
+                              0, 0, GameBuffer.Width, GameBuffer.Height,
+                              0, 0, GameBuffer.Width, GameBuffer.Height,
+                              GameBuffer.Data,
+                              &BitmapInfo,
+                              DIB_RGB_COLORS, SRCCOPY);
                 ReleaseDC(Window, DeviceContext);
             }
         }
