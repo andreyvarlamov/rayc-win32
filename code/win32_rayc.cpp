@@ -1,52 +1,20 @@
-#include <stdint.h>
-
-typedef int8_t i8;
-typedef int16_t i16;
-typedef int32_t i32;
-typedef int32_t i64;
-
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef float f32;
-typedef float f64;
-
-typedef i32 bool32;
-
-#define internal static
-#define local_persist static
-#define global_variable static
-
-#define Assert(Expression) if (!(Expression)) {*(int *)0 = 0;}
-
-struct game_offscreen_buffer
-{
-    void *Data;
-    int Width;
-    int Height;
-    int Pitch;
-    int BytesPerPixel;
-};
-
-struct game_input
-{
-    bool32 Up;
-    bool32 Down;
-    bool32 Left;
-    bool32 Right;
-};
-
-struct game_state
-{
-    int GreenOffset;
-    int BlueOffset;
-};
+#include "rayc.cpp"
 
 #include <windows.h>
 
 global_variable bool32 GlobalRunning;
+
+internal void
+DEBUGPrintString(const char *Format, ...)
+{
+    va_list Args;
+    va_start(Args, Format);
+    char CharBuffer[256];
+    vsprintf_s(CharBuffer, 256, Format, Args);
+    va_end(Args);
+
+    OutputDebugStringA(CharBuffer);
+}
 
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window,
@@ -195,36 +163,17 @@ WinMain(HINSTANCE Instance,
             BitmapInfo.bmiHeader.biBitCount = 32;
             BitmapInfo.bmiHeader.biCompression = BI_RGB;
             
-            game_input InputData = {};
+            game_input GameInput = {};
             game_state GameState = {};
+            GameStateInit(&GameState);
             
             GlobalRunning = true;
             while (GlobalRunning)
             {
-                Win32ProcessPendingMessage(&InputData);
+                Win32ProcessPendingMessage(&GameInput);
 
-                u8 *Row = (u8 *)GameBuffer.Data;
-                for (int Y = 0;
-                     Y < GameBuffer.Height;
-                     ++Y)
-                {
-                    u32 *Pixel = (u32 *)Row;
-                    for (int X = 0;
-                         X < GameBuffer.Width;
-                         ++X)
-                    {
-                        u8 Blue = (u8)(X + GameState.BlueOffset);
-                        u8 Green = (u8)(Y + GameState.GreenOffset);
+                GameUpdateAndRender(&GameState, &GameInput, &GameBuffer);
 
-                        *Pixel++ = ((Green << 8) | Blue);
-                    }
-
-                    Row += GameBuffer.Pitch;
-                }
-
-                ++GameState.BlueOffset;
-                ++GameState.GreenOffset;
-                
                 HDC DeviceContext = GetDC(Window);
                 StretchDIBits(DeviceContext,
                               0, 0, GameBuffer.Width, GameBuffer.Height,
