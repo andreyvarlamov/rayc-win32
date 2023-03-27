@@ -235,44 +235,44 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
 internal f32
 CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
 {
-    f32 StepLength = 0.01f;
-    f32 AngleCosine = cosf(RayAngle);
-        
-    // sin theta = opp / hyp ; cos theta = adj / hyp
-    // TODO: DDA
-    f32 dX = AngleCosine*StepLength;
-    f32 dY = -sinf(RayAngle) * StepLength;
-
-    f32 CurrentX = State->PlayerX;
-    f32 CurrentY = State->PlayerY;
-
-    while (CurrentX > 0.0f && CurrentX < 8.0f &&
-           CurrentY > 0.0f && CurrentY < 8.0f)
+    Assert(RayAngle > -2*Pi32 && RayAngle < 4*Pi32);
+    
+    if (RayAngle >= 2*Pi32)
     {
-        if (State->Map[(i32)CurrentY][(i32)CurrentX])
-        {
-            // NOTE: Ray hit a wall
-            State->RaycastHitMap[(i32)CurrentY][(i32)CurrentX] = 1;
-            break;
-        }
-        
-        CurrentX += dX;
-        CurrentY += dY;
+        RayAngle -= 2*Pi32;
+    }
+    if (RayAngle < 0.0f)
+    {
+        RayAngle += 2*Pi32;
     }
 
-    point_real RaycastHitPoint = {};
-    RaycastHitPoint.X = CurrentX;
-    RaycastHitPoint.Y = CurrentY;
-    State->RaycastHitPoints[RayIndex] = RaycastHitPoint;
-
-    f32 DistanceX = CurrentX - State->PlayerX;
-    f32 DistanceY = CurrentY - State->PlayerY;
-
-    // TODO: Calculate dist perpendicular to player fov plane
-    // hyp = adj / cos theta
-    f32 Distance = DistanceX / AngleCosine;
-
-    return Distance;
+    f32 OffsetX = State->PlayerX - (f32)TruncateF32ToI32(State->PlayerX);
+    f32 OffsetY = State->PlayerY - (f32)TruncateF32ToI32(State->PlayerY);
+    if (RayAngle > 0.0f && RayAngle <= Pi32/2.0f)
+    {
+        // NOTE: NE Quadrant
+        OffsetX = 1.0f-OffsetX;
+        OffsetY = -OffsetY;
+    }
+    else if (RayAngle > Pi32/2.0f && RayAngle <= Pi32)
+    {
+        // NOTE: NW Quadrant
+        OffsetX = -OffsetX;
+        OffsetY = -OffsetY;
+    }
+    else if (RayAngle > Pi32 && RaAngle <= 3.0f*Pi32/2.0f)
+    {
+        // NOTE: SW Quadrant
+        OffsetX = -OffsetX;
+        OffsetY = 1.0f-Offset;
+    }
+    else
+    {
+        // NOTE: SE Quadrant
+        OffsetX = 1.0f-OffsetX;
+        OffsetY = 1.0f-OffsetY;
+    }
+        
 }
 
 internal void
@@ -359,6 +359,10 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     }
 
     State->PlayerAngle += 0.01f;
+    if (State->PlayerAngle >= 2*Pi32)
+    {
+        State->PlayerAngle = 0.0f;
+    }
 
     f32 MinimapWidth = 450;
     f32 MinimapHeight = 450;
