@@ -64,9 +64,6 @@ struct game_state
     u8 RaycastHitMap[8][8];
     u32 MapColors[8][8];
     point_real RaycastHitPoints[RAYCAST_NUM];
-
-    // TODO: Remove
-    bool32 AlreadyPrinted;
 };
 
 internal void
@@ -127,15 +124,6 @@ DrawLine(game_offscreen_buffer *Buffer,
          f32 RealEndX, f32 RealEndY,
          u32 Color)
 {
-    // i32 StartX = RoundF32ToI32(RealStartX);
-    // i32 StartY = RoundF32ToI32(RealStartY);
-    // i32 EndX = RoundF32ToI32(RealEndX);
-    // i32 EndY = RoundF32ToI32(RealEndY);
-    // if (StartX < 0) StartX = 0;
-    // if (StartY < 0) StartY = 0;
-    // if (StartX > Buffer->Width) StartX = Buffer->Width;
-    // if (StartY > Buffer->Height) StartY = Buffer->Height;
-
     f32 DistanceX = RealEndX - RealStartX;
     f32 DistanceY = RealEndY - RealStartY;
     f32 DistanceX_Abs = ((DistanceX > 0) ? DistanceX : -DistanceX);
@@ -244,6 +232,49 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
     }
 }
 
+internal f32
+CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
+{
+    f32 StepLength = 0.01f;
+    f32 AngleCosine = cosf(RayAngle);
+        
+    // sin theta = opp / hyp ; cos theta = adj / hyp
+    // TODO: DDA
+    f32 dX = AngleCosine*StepLength;
+    f32 dY = -sinf(RayAngle) * StepLength;
+
+    f32 CurrentX = State->PlayerX;
+    f32 CurrentY = State->PlayerY;
+
+    while (CurrentX > 0.0f && CurrentX < 8.0f &&
+           CurrentY > 0.0f && CurrentY < 8.0f)
+    {
+        if (State->Map[(i32)CurrentY][(i32)CurrentX])
+        {
+            // NOTE: Ray hit a wall
+            State->RaycastHitMap[(i32)CurrentY][(i32)CurrentX] = 1;
+            break;
+        }
+        
+        CurrentX += dX;
+        CurrentY += dY;
+    }
+
+    point_real RaycastHitPoint = {};
+    RaycastHitPoint.X = CurrentX;
+    RaycastHitPoint.Y = CurrentY;
+    State->RaycastHitPoints[RayIndex] = RaycastHitPoint;
+
+    f32 DistanceX = CurrentX - State->PlayerX;
+    f32 DistanceY = CurrentY - State->PlayerY;
+
+    // TODO: Calculate dist perpendicular to player fov plane
+    // hyp = adj / cos theta
+    f32 Distance = DistanceX / AngleCosine;
+
+    return Distance;
+}
+
 internal void
 GameStateInit(game_state *State)
 {
@@ -303,54 +334,11 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 FovEnd = State->PlayerAngle - Pi32 / 6.0f;
     f32 dAngle = (FovEnd - RayAngle) / (f32)RayNumber;
 
-    int RayIndex = 0;
-
-    f32 StepLength = 0.01f;
-
-    while (RayAngle > FovEnd)
+    for (int RayIndex = 0;
+         RayIndex < RayNumber;
+         ++RayIndex)
     {
-        f32 AngleCosine = cosf(RayAngle);
-        
-        // sin theta = opp / hyp ; cos theta = adj / hyp
-        // TODO: DDA
-        f32 dX = AngleCosine*StepLength;
-        f32 dY = -sinf(RayAngle) * StepLength;
-
-        f32 CurrentX = State->PlayerX;
-        f32 CurrentY = State->PlayerY;
-
-        while (CurrentX > 0.0f && CurrentX < 8.0f &&
-               CurrentY > 0.0f && CurrentY < 8.0f)
-        {
-            if (State->Map[(i32)CurrentY][(i32)CurrentX])
-            {
-                // NOTE: Ray hit a wall
-                State->RaycastHitMap[(i32)CurrentY][(i32)CurrentX] = 1;
-                break;
-            }
-        
-            CurrentX += dX;
-            CurrentY += dY;
-        }
-
-        point_real RaycastHitPoint = {};
-        RaycastHitPoint.X = CurrentX;
-        RaycastHitPoint.Y = CurrentY;
-        State->RaycastHitPoints[RayIndex] = RaycastHitPoint;
-
-        f32 DistanceX = CurrentX - State->PlayerX;
-        f32 DistanceY = CurrentY - State->PlayerY;
-
-        // TODO: Calculate dist perpendicular to player fov plane
-        // hyp = adj / cos theta
-        f32 Distance = DistanceX / AngleCosine;
-
-#if 1
-        if (!State->AlreadyPrinted)
-        {
-            DEBUGPrintString("%02d: Distance = %2.2f. Found tile at %02d, %02d\n", RayIndex, Distance, (i32)CurrentX, (i32)CurrentY);
-        }
-#endif
+        f32 Distance = CastARay(State, RayAngle, RayIndex);
 
         // Distance: 0.0f >>> MaxDistance
         // ColumnHeight: Buffer->Height >>> 0.0f;
@@ -362,15 +350,13 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
         f32 ColumnMinX = CurrentColumn;
         f32 ColumnMaxX = CurrentColumn + ColumnWidth;
-        u32 ColumnColor = State->MapColors[(i32)CurrentY][(i32)CurrentX];
+        point_real RaycastHitPoint = State->RaycastHitPoints[RayIndex];
+        u32 ColumnColor = State->MapColors[(i32)RaycastHitPoint.Y][(i32)RaycastHitPoint.X];
         DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
 
         RayAngle += dAngle;
         CurrentColumn += ColumnWidth;
-        ++RayIndex;
     }
-
-    State->AlreadyPrinted = true;
 
     State->PlayerAngle += 0.01f;
 
@@ -381,26 +367,4 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 MinimapMinY = (f32)Buffer->Height - MinimapHeight;
     f32 MinimapMaxY = (f32)Buffer->Height;
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
-    
-    // u8 *Row = (u8 *)Buffer->Data;
-    // for (int Y = 0;
-    //      Y < Buffer->Height;
-    //      ++Y)
-    // {
-    //     u32 *Pixel = (u32 *)Row;
-    //     for (int X = 0;
-    //          X < Buffer->Width;
-    //          ++X)
-    //     {
-    //         u8 Blue = (u8)(X + State->BlueOffset);
-    //         u8 Green = (u8)(Y + State->GreenOffset);
-
-    //         *Pixel++ = ((Green << 8) | Blue);
-    //     }
-
-    //     Row += Buffer->Pitch;
-    // }
-
-    // ++State->BlueOffset;
-    // ++State->GreenOffset;
 }
