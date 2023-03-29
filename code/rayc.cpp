@@ -49,6 +49,19 @@ struct point_real
     f32 Y;
 };
 
+struct ray_data
+{
+    f32 RayAngle;
+
+    f32 InterceptX;
+    f32 InterceptY;
+
+    i32 TileX;
+    i32 TileY;
+
+    f32 Distance;
+};
+
 #define RAYCAST_NUM 1600
 
 struct game_state
@@ -63,7 +76,7 @@ struct game_state
     u8 Map[8][8];
     u8 RaycastHitMap[8][8];
     u32 MapColors[8][8];
-    point_real RaycastHitPoints[RAYCAST_NUM];
+    ray_data RaycastData[RAYCAST_NUM];
 };
 
 internal void
@@ -241,17 +254,18 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
     {
         f32 LineStartX = PaddedMinX + State->PlayerX * TileWidth;
         f32 LineStartY = PaddedMinY + State->PlayerY * TileHeight;
-        f32 LineEndX = PaddedMinX + State->RaycastHitPoints[RayIndex].X * TileWidth;
-        f32 LineEndY = PaddedMinY + State->RaycastHitPoints[RayIndex].Y * TileHeight;
+        f32 LineEndX = PaddedMinX + State->RaycastData[RayIndex].InterceptX * TileWidth;
+        f32 LineEndY = PaddedMinY + State->RaycastData[RayIndex].InterceptY * TileHeight;
         DrawLine(Buffer, LineStartX, LineStartY, LineEndX, LineEndY, RaycastHitColor);
     }
 }
 
-internal f32
-CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
+internal ray_data
+CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle)
 {
     Assert(RayAngle > -2*Pi32 && RayAngle < 4*Pi32);
-    Assert(RayIndex < RAYCAST_NUM);
+
+    ray_data Result = {0};
     
     if (RayAngle >= 2*Pi32)
     {
@@ -261,6 +275,8 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
     {
         RayAngle += 2*Pi32;
     }
+
+    Result.RayAngle = RayAngle;
 
     f32 X_DecimalPart = State->PlayerX - (f32)TruncateF32ToI32(State->PlayerX);
     f32 Y_DecimalPart = State->PlayerY - (f32)TruncateF32ToI32(State->PlayerY);
@@ -318,16 +334,16 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
             State->Map[HitTileY][HitTileX])
         {
             // NOTE: Hit a wall or end of map
+            Result.InterceptX = VerticalInterceptX;
+            Result.InterceptY = VerticalInterceptY;
+            Result.TileX = HitTileX;
+            Result.TileY = HitTileY;
             break;
         }
         
         VerticalInterceptX += X_StepDirection;
         VerticalInterceptY += Y_StepDirection*RayAngleTan;
     }
-
-    point_real Intercept = {0};
-    Intercept.X = VerticalInterceptX;
-    Intercept.Y = VerticalInterceptY;
 
     // Horizontal Intercepts (traversing vertically)
     f32 HorizontalInterceptX = State->PlayerX + X_StepDirection*OffsetY/RayAngleTan;
@@ -346,6 +362,8 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
             State->Map[HitTileY][HitTileX])
         {
             // NOTE: Hit a wall or end of map
+
+            bool32 ShouldReplaceVerticalIntercept = false;
             if (RayAngleTan >= 1)
             {
                 // NOTE:
@@ -353,11 +371,7 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
                 // Determine the closer to player point using Y axis
                 f32 HorizontalInterceptDistanceToPlayerY = AbsoluteF32(State->PlayerY - HorizontalInterceptY);
                 f32 VerticalInterceptDistanceToPlayerY = AbsoluteF32(State->PlayerY - VerticalInterceptY);
-                if (HorizontalInterceptDistanceToPlayerY < VerticalInterceptDistanceToPlayerY)
-                {
-                    Intercept.X = HorizontalInterceptX;
-                    Intercept.Y = HorizontalInterceptY;
-                }
+                ShouldReplaceVerticalIntercept = HorizontalInterceptDistanceToPlayerY < VerticalInterceptDistanceToPlayerY;
             }
             else
             {
@@ -366,23 +380,26 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
                 // Determine the closer to player point using X axis
                 f32 HorizontalInterceptDistanceToPlayerX = AbsoluteF32(State->PlayerX - HorizontalInterceptX);
                 f32 VerticalInterceptDistanceToPlayerX = AbsoluteF32(State->PlayerX - VerticalInterceptX);
-                if (HorizontalInterceptDistanceToPlayerX < VerticalInterceptDistanceToPlayerX)
-                {
-                    Intercept.X = HorizontalInterceptX;
-                    Intercept.Y = HorizontalInterceptY;
-                }
+                ShouldReplaceVerticalIntercept = HorizontalInterceptDistanceToPlayerX < VerticalInterceptDistanceToPlayerX;
             }
+
+            if (ShouldReplaceVerticalIntercept)
+            {
+                Result.InterceptX = HorizontalInterceptX;
+                Result.InterceptY = HorizontalInterceptY;
+                Result.TileX = HitTileX;
+                Result.TileY = HitTileY;
+            }
+
             break;
         }
-        
+
         HorizontalInterceptX += X_StepDirection/RayAngleTan;
         HorizontalInterceptY += Y_StepDirection;
     }
 
-    State->RaycastHitPoints[RayIndex] = Intercept;
-
-    f32 PlayerInterceptDistanceX = Intercept.X - State->PlayerX;
-    f32 PlayerInterceptDistanceY = State->PlayerY - Intercept.Y; // ???????????????????????????????????????????????????
+    f32 PlayerInterceptDistanceX = Result.InterceptX - State->PlayerX;
+    f32 PlayerInterceptDistanceY = State->PlayerY - Result.InterceptY; // ???????????????????????????????????????????????????
                                                                  // IMPORTANT: Review this. Only 70% understand why Y should be inverted
     // f32 OldDistance = sqrtf(PlayerInterceptDistanceX*PlayerInterceptDistanceX +
     //                      PlayerInterceptDistanceY*PlayerInterceptDistanceY);
@@ -405,12 +422,12 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
     // f32 OldDistSinPlayer = OldDistance * sinf(RayAngle);
     // f32 SuperLolDistance = OldDistCosPlayer*cosf(PlayerAngle) + OldDistSinPlayer*sinf(PlayerAngle);
 
-    f32 Distance = (PlayerInterceptDistanceX*cosf(PlayerAngle) +
+    Result.Distance = (PlayerInterceptDistanceX*cosf(PlayerAngle) +
                     PlayerInterceptDistanceY*sinf(PlayerAngle));
 
     // bool32 ShouldBreak = AbsoluteF32(Distance - SuperLolDistance) > 0.1f;
     
-    return Distance;
+    return Result;
 }
 
 internal void
@@ -479,13 +496,13 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
          RayIndex < RayNumber;
          ++RayIndex)
     {
-        f32 Distance = CastARay(State, State->PlayerAngle, RayAngle, RayIndex);
+        ray_data RayData = CastARay(State, State->PlayerAngle, RayAngle);
 
         // Distance: 0.0f >>> MaxDistance
         // ColumnHeight: Buffer->Height >>> 0.0f;
         // TODO: Is this right? What's the reasonable max distance?
         f32 ColumnHeightConstant = 800.0f;
-        f32 ColumnHeight = ColumnHeightConstant / Distance;
+        f32 ColumnHeight = ColumnHeightConstant / RayData.Distance;
         if (ColumnHeight > (f32)Buffer->Height)
         {
             ColumnHeight = (f32)Buffer->Height;
@@ -494,9 +511,15 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
         f32 ColumnMinX = CurrentColumn;
         f32 ColumnMaxX = CurrentColumn + ColumnWidth;
-        point_real RaycastHitPoint = State->RaycastHitPoints[RayIndex];
-        u32 ColumnColor = State->MapColors[(i32)RaycastHitPoint.Y][(i32)RaycastHitPoint.X];
+        u32 ColumnColor = 0;
+        if (RayData.TileX >= 0 && RayData.TileX < 8 &&
+            RayData.TileY >= 0 && RayData.TileY < 8)
+        {
+            ColumnColor = State->MapColors[RayData.TileY][RayData.TileX];
+        }
         DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
+
+        State->RaycastData[RayIndex] = RayData;
 
         //DEBUGPrintString("Ray %d: %0.2f\n", RayIndex, Distance);
 
