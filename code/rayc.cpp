@@ -248,7 +248,7 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
 }
 
 internal f32
-CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
+CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle, i32 RayIndex)
 {
     Assert(RayAngle > -2*Pi32 && RayAngle < 4*Pi32);
     Assert(RayIndex < RAYCAST_NUM);
@@ -381,12 +381,35 @@ CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
 
     State->RaycastHitPoints[RayIndex] = Intercept;
 
-    // TODO: Do this properly
-    f32 PlayerInterceptDistanceX = AbsoluteF32(State->PlayerX - Intercept.X);
-    f32 PlayerInterceptDistanceY = AbsoluteF32(State->PlayerY - Intercept.Y);
-    f32 Distance = sqrtf(PlayerInterceptDistanceX*PlayerInterceptDistanceX +
-                         PlayerInterceptDistanceY*PlayerInterceptDistanceY);
-                          
+    f32 PlayerInterceptDistanceX = Intercept.X - State->PlayerX;
+    f32 PlayerInterceptDistanceY = State->PlayerY - Intercept.Y; // ???????????????????????????????????????????????????
+                                                                 // IMPORTANT: Review this. Only 70% understand why Y should be inverted
+    // f32 OldDistance = sqrtf(PlayerInterceptDistanceX*PlayerInterceptDistanceX +
+    //                      PlayerInterceptDistanceY*PlayerInterceptDistanceY);
+
+    // // f32 DiffAngle = PlayerAngle - RayAngle;
+    // f32 DiffAngle = RayAngle - PlayerAngle;
+    // if (DiffAngle < 0.0f)
+    // {
+    //     DiffAngle += 2*Pi32;
+    // }
+    // if (DiffAngle > 2*Pi32)
+    // {
+    //     DiffAngle -= 2*Pi32;
+    // }
+    // f32 HahaDistance = OldDistance * cosf(DiffAngle);
+
+    // f32 LolDistance = OldDistance * cosf(RayAngle) * cosf (PlayerAngle) + OldDistance * sinf(RayAngle) * sinf(PlayerAngle);
+
+    // f32 OldDistCosPlayer = OldDistance * cosf(RayAngle);
+    // f32 OldDistSinPlayer = OldDistance * sinf(RayAngle);
+    // f32 SuperLolDistance = OldDistCosPlayer*cosf(PlayerAngle) + OldDistSinPlayer*sinf(PlayerAngle);
+
+    f32 Distance = (PlayerInterceptDistanceX*cosf(PlayerAngle) +
+                    PlayerInterceptDistanceY*sinf(PlayerAngle));
+
+    // bool32 ShouldBreak = AbsoluteF32(Distance - SuperLolDistance) > 0.1f;
+    
     return Distance;
 }
 
@@ -395,6 +418,8 @@ GameStateInit(game_state *State)
 {
     State->PlayerX = 1.5f;
     State->PlayerY = 3.5f;
+    // State->PlayerAngle = -Pi32/12.0f;
+    State->PlayerAngle = 2*Pi32-Pi32/8;
 
     u8 Map[8][8] = {
         { 1, 1, 1, 1,  1, 1, 1, 1 },
@@ -446,6 +471,7 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 ScreenCenter = (f32)Buffer->Height / 2.0f;
     
     f32 RayAngle = State->PlayerAngle + Pi32 / 6.0f;
+    // f32 RayAngle = State->PlayerAngle;
     f32 FovEnd = State->PlayerAngle - Pi32 / 6.0f;
     f32 dAngle = (FovEnd - RayAngle) / (f32)RayNumber;
 
@@ -453,14 +479,17 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
          RayIndex < RayNumber;
          ++RayIndex)
     {
-        f32 Distance = CastARay(State, RayAngle, RayIndex);
+        f32 Distance = CastARay(State, State->PlayerAngle, RayAngle, RayIndex);
 
         // Distance: 0.0f >>> MaxDistance
         // ColumnHeight: Buffer->Height >>> 0.0f;
         // TODO: Is this right? What's the reasonable max distance?
-        f32 MaxDistance = 8.0f;
-        f32 ColumnHeightConstant = (MaxDistance - Distance)/MaxDistance;
-        f32 ColumnHeight = ColumnHeightConstant * (f32)Buffer->Height;
+        f32 ColumnHeightConstant = 800.0f;
+        f32 ColumnHeight = ColumnHeightConstant / Distance;
+        if (ColumnHeight > (f32)Buffer->Height)
+        {
+            ColumnHeight = (f32)Buffer->Height;
+        }
         f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
         f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
         f32 ColumnMinX = CurrentColumn;
@@ -469,11 +498,15 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         u32 ColumnColor = State->MapColors[(i32)RaycastHitPoint.Y][(i32)RaycastHitPoint.X];
         DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
 
+        //DEBUGPrintString("Ray %d: %0.2f\n", RayIndex, Distance);
+
         RayAngle += dAngle;
         CurrentColumn += ColumnWidth;
     }
 
-    State->PlayerAngle += 0.01f;
+    //DEBUGPrintString("\n\n---------END FRAME-------\n\n");
+
+    State->PlayerAngle += 0.001f;
     if (State->PlayerAngle >= 2*Pi32)
     {
         State->PlayerAngle = 0.0f;
