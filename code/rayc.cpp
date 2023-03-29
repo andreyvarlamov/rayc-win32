@@ -76,6 +76,20 @@ RoundF32ToI32(f32 Real)
     return Result;
 }
 
+internal i32
+TruncateF32ToI32(f32 Real)
+{
+    i32 Result = (i32)Real;
+    return Result;
+}
+
+internal f32
+AbsoluteF32(f32 Value)
+{
+    f32 Result = ((Value > 0) ? Value : -Value);
+    return Result;
+}
+
 internal void
 DrawRectangle(game_offscreen_buffer *Buffer,
               f32 RealMinX, f32 RealMinY,
@@ -126,6 +140,7 @@ DrawLine(game_offscreen_buffer *Buffer,
 {
     f32 DistanceX = RealEndX - RealStartX;
     f32 DistanceY = RealEndY - RealStartY;
+    // TODO: Use absolute function
     f32 DistanceX_Abs = ((DistanceX > 0) ? DistanceX : -DistanceX);
     f32 DistanceY_Abs = ((DistanceY > 0) ? DistanceY : -DistanceY);
     f32 SteppingDistance = ((DistanceX_Abs >= DistanceY_Abs) ? DistanceX_Abs : DistanceY_Abs);
@@ -236,6 +251,7 @@ internal f32
 CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
 {
     Assert(RayAngle > -2*Pi32 && RayAngle < 4*Pi32);
+    Assert(RayIndex < RAYCAST_NUM);
     
     if (RayAngle >= 2*Pi32)
     {
@@ -246,33 +262,132 @@ CastARay(game_state *State, f32 RayAngle, i32 RayIndex)
         RayAngle += 2*Pi32;
     }
 
-    f32 OffsetX = State->PlayerX - (f32)TruncateF32ToI32(State->PlayerX);
-    f32 OffsetY = State->PlayerY - (f32)TruncateF32ToI32(State->PlayerY);
+    f32 X_DecimalPart = State->PlayerX - (f32)TruncateF32ToI32(State->PlayerX);
+    f32 Y_DecimalPart = State->PlayerY - (f32)TruncateF32ToI32(State->PlayerY);
+    f32 OffsetX, OffsetY;
+    f32 X_StepDirection, Y_StepDirection;
     if (RayAngle > 0.0f && RayAngle <= Pi32/2.0f)
     {
         // NOTE: NE Quadrant
-        OffsetX = 1.0f-OffsetX;
-        OffsetY = -OffsetY;
+        OffsetX = 1.0f-X_DecimalPart;
+        OffsetY = Y_DecimalPart;
+        X_StepDirection = 1.0f;
+        Y_StepDirection = -1.0f;
     }
     else if (RayAngle > Pi32/2.0f && RayAngle <= Pi32)
     {
         // NOTE: NW Quadrant
-        OffsetX = -OffsetX;
-        OffsetY = -OffsetY;
+        OffsetX = X_DecimalPart;
+        OffsetY = Y_DecimalPart;
+        X_StepDirection = -1.0f;
+        Y_StepDirection = -1.0f;
     }
-    else if (RayAngle > Pi32 && RaAngle <= 3.0f*Pi32/2.0f)
+    else if (RayAngle > Pi32 && RayAngle <= 3.0f*Pi32/2.0f)
     {
         // NOTE: SW Quadrant
-        OffsetX = -OffsetX;
-        OffsetY = 1.0f-Offset;
+        OffsetX = X_DecimalPart;
+        OffsetY = 1.0f-Y_DecimalPart;
+        X_StepDirection = -1.0f;
+        Y_StepDirection = 1.0f;
     }
     else
     {
         // NOTE: SE Quadrant
-        OffsetX = 1.0f-OffsetX;
-        OffsetY = 1.0f-OffsetY;
+        OffsetX = 1.0f-X_DecimalPart;
+        OffsetY = 1.0f-Y_DecimalPart;
+        X_StepDirection = 1.0f;
+        Y_StepDirection = 1.0f;
     }
+
+    f32 RayAngleTan = AbsoluteF32(tanf(RayAngle));
+
+    // Vertical Intercepts (traversing horizontally)
+    f32 VerticalInterceptX = State->PlayerX + X_StepDirection*OffsetX;
+    f32 VerticalInterceptY = State->PlayerY + Y_StepDirection*OffsetX*RayAngleTan;
+    for (;;)
+    {
+        i32 HitTileX = RoundF32ToI32(VerticalInterceptX);
+        if (X_StepDirection < 0)
+        {
+            --HitTileX;
+        }
+        i32 HitTileY = TruncateF32ToI32(VerticalInterceptY);
         
+        if (HitTileX < 0 || HitTileX >= 8 ||
+            HitTileY < 0 || HitTileY >= 8 ||
+            State->Map[HitTileY][HitTileX])
+        {
+            // NOTE: Hit a wall or end of map
+            break;
+        }
+        
+        VerticalInterceptX += X_StepDirection;
+        VerticalInterceptY += Y_StepDirection*RayAngleTan;
+    }
+
+    point_real Intercept = {0};
+    Intercept.X = VerticalInterceptX;
+    Intercept.Y = VerticalInterceptY;
+
+    // Horizontal Intercepts (traversing vertically)
+    f32 HorizontalInterceptX = State->PlayerX + X_StepDirection*OffsetY/RayAngleTan;
+    f32 HorizontalInterceptY = State->PlayerY + Y_StepDirection*OffsetY;
+    for (;;)
+    {
+        i32 HitTileX = TruncateF32ToI32(HorizontalInterceptX);
+        i32 HitTileY = RoundF32ToI32(HorizontalInterceptY);
+        if (Y_StepDirection < 0)
+        {
+            --HitTileY;
+        }
+        
+        if (HitTileX < 0 || HitTileX >= 8 ||
+            HitTileY < 0 || HitTileY >= 8 ||
+            State->Map[HitTileY][HitTileX])
+        {
+            // NOTE: Hit a wall or end of map
+            if (RayAngleTan >= 1)
+            {
+                // NOTE:
+                // Absolute value of tangent of theta is greater than 1 => Slope (y1-y0)/(x1-x0) is greater than 1
+                // Determine the closer to player point using Y axis
+                f32 HorizontalInterceptDistanceToPlayerY = AbsoluteF32(State->PlayerY - HorizontalInterceptY);
+                f32 VerticalInterceptDistanceToPlayerY = AbsoluteF32(State->PlayerY - VerticalInterceptY);
+                if (HorizontalInterceptDistanceToPlayerY < VerticalInterceptDistanceToPlayerY)
+                {
+                    Intercept.X = HorizontalInterceptX;
+                    Intercept.Y = HorizontalInterceptY;
+                }
+            }
+            else
+            {
+                // NOTE:
+                // Absolute value of tangent of theta is less than 1 => Slope (y1-y0)/(x1-x0) is less than 1
+                // Determine the closer to player point using X axis
+                f32 HorizontalInterceptDistanceToPlayerX = AbsoluteF32(State->PlayerX - HorizontalInterceptX);
+                f32 VerticalInterceptDistanceToPlayerX = AbsoluteF32(State->PlayerX - VerticalInterceptX);
+                if (HorizontalInterceptDistanceToPlayerX < VerticalInterceptDistanceToPlayerX)
+                {
+                    Intercept.X = HorizontalInterceptX;
+                    Intercept.Y = HorizontalInterceptY;
+                }
+            }
+            break;
+        }
+        
+        HorizontalInterceptX += X_StepDirection/RayAngleTan;
+        HorizontalInterceptY += Y_StepDirection;
+    }
+
+    State->RaycastHitPoints[RayIndex] = Intercept;
+
+    // TODO: Do this properly
+    f32 PlayerInterceptDistanceX = AbsoluteF32(State->PlayerX - Intercept.X);
+    f32 PlayerInterceptDistanceY = AbsoluteF32(State->PlayerY - Intercept.Y);
+    f32 Distance = sqrtf(PlayerInterceptDistanceX*PlayerInterceptDistanceX +
+                         PlayerInterceptDistanceY*PlayerInterceptDistanceY);
+                          
+    return Distance;
 }
 
 internal void
