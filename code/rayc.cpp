@@ -37,6 +37,8 @@ struct game_offscreen_buffer
 
 struct game_input
 {
+    f32 SecondsPerFrame;
+
     bool32 Up;
     bool32 Down;
     bool32 Left;

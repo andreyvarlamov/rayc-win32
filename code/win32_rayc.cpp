@@ -3,6 +3,8 @@
 #include <windows.h>
 
 global_variable bool32 GlobalRunning;
+global_variable i64 GlobalPerfCountFrequency;
+global_variable bool32 GlobalSleepIsGranular;
 
 internal void
 DEBUGPrintString(const char *Format, ...)
@@ -103,6 +105,54 @@ Win32ProcessPendingMessage(game_input *InputData)
     }
 }
 
+inline LARGE_INTEGER
+Win32GetWallClock()
+{
+    LARGE_INTEGER Result;
+    QueryPerformanceCounter(&Result);
+    return Result;
+}
+
+inline f32
+Win32GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
+{
+    f32 Result = ((f32)(End.QuadPart - Start.QuadPart) /
+                  (f32)GlobalPerfCountFrequency);
+    return Result;
+}
+
+internal void
+Win32PauseUntilFrameTime(LARGE_INTEGER LastCounter, f32 SecondsElapsed, f32 TargetSeconds)
+{
+    if (SecondsElapsed < TargetSeconds)
+    {
+        if (GlobalSleepIsGranular)
+        {
+            i32 SleepMS_Signed = (i32)(1000.0f * (TargetSeconds - SecondsElapsed)) - 1;
+            if (SleepMS_Signed > 0)
+            {
+                Sleep((DWORD)SleepMS_Signed);
+            }
+
+            SecondsElapsed = Win32GetSecondsElapsed(LastCounter, Win32GetWallClock());
+            if (SecondsElapsed > TargetSeconds)
+            {
+                DEBUGPrintString("Missed frame - sleep.\n");
+            }
+        }
+
+        while (SecondsElapsed < TargetSeconds)
+        {
+            // NOTE: Spin
+            SecondsElapsed = Win32GetSecondsElapsed(LastCounter, Win32GetWallClock());
+        }
+    }
+    else
+    {
+        DEBUGPrintString("Missed frame - work.\n");
+    }
+}
+
 int CALLBACK
 WinMain(HINSTANCE Instance,
         HINSTANCE PrevInstance,
@@ -166,14 +216,34 @@ WinMain(HINSTANCE Instance,
             game_input GameInput = {};
             game_state GameState = {};
             GameStateInit(&GameState);
+
+            LARGE_INTEGER LastCounter = Win32GetWallClock();
+            f32 SecondsElapsedForFrame = 0.0f;
+
+            LARGE_INTEGER PerfCountFrequencyResult;
+            QueryPerformanceFrequency(&PerfCountFrequencyResult);
+            GlobalPerfCountFrequency = (i64)PerfCountFrequencyResult.QuadPart;
+
+            // NOTE: Set the Windows scheduler granularity to 1 ms for Sleep().
+            UINT DesiredSchedulerMS = 1;
+            GlobalSleepIsGranular = (timeBeginPeriod(DesiredSchedulerMS) == TIMERR_NOERROR);
+
+            f32 TargetSecondsPerFrame = 1 / 60.0f; // 60FPS
+            GameInput.SecondsPerFrame = TargetSecondsPerFrame;
             
             GlobalRunning = true;
             while (GlobalRunning)
             {
                 Win32ProcessPendingMessage(&GameInput);
-
                 GameUpdateAndRender(&GameState, &GameInput, &GameBuffer);
 
+                LARGE_INTEGER WorkCounter = Win32GetWallClock();
+                f32 WorkSecondsElapsed = Win32GetSecondsElapsed(LastCounter, WorkCounter);
+                Win32PauseUntilFrameTime(LastCounter, WorkSecondsElapsed, TargetSecondsPerFrame);
+                LARGE_INTEGER EndCounter = Win32GetWallClock();
+                SecondsElapsedForFrame = Win32GetSecondsElapsed(LastCounter, EndCounter);
+                LastCounter = EndCounter;
+                
                 HDC DeviceContext = GetDC(Window);
                 StretchDIBits(DeviceContext,
                               0, 0, GameBuffer.Width, GameBuffer.Height,
@@ -182,6 +252,16 @@ WinMain(HINSTANCE Instance,
                               &BitmapInfo,
                               DIB_RGB_COLORS, SRCCOPY);
                 ReleaseDC(Window, DeviceContext);
+
+                f32 WorkPercent  = WorkSecondsElapsed / SecondsElapsedForFrame * 100.0f;
+                if (WorkPercent > 80.0f)
+                {
+                    
+                    DEBUGPrintString("Frame=%.2fms; Work=%.2fms(%.0f%%)\n",
+                                     SecondsElapsedForFrame * 1000.0f,
+                                     WorkSecondsElapsed * 1000.0f,
+                                     WorkPercent);
+                }
             }
         }
         else
