@@ -565,7 +565,7 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         // Distance: 0.0f >>> MaxDistance
         // ColumnHeight: Buffer->Height >>> 0.0f;
         // TODO: Is this right? What's the reasonable max distance?
-        f32 ColumnHeightConstant = 800.0f;
+        f32 ColumnHeightConstant = 420.0f;
         f32 ColumnHeight = ColumnHeightConstant / RayData.Distance;
         if (ColumnHeight > (f32)Buffer->Height)
         {
