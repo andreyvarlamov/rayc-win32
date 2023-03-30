@@ -625,18 +625,25 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     Assert(BMP);
 
     u8 *Source = (u8 *)BMP;
-    u32 *Dest = (u32 *)Buffer->Data;
+    u32 *Row = (u32 *)Buffer->Data;
+    u32 *Dest = Row;
     
     for (int CopyIndex = 0;
-         CopyIndex < 100000;
+         CopyIndex < 160000;
          ++CopyIndex)
     {
         u8 Alpha = 0xFF;
         u8 Red = *Source++;
         u8 Green = *Source++;
         u8 Blue = *Source++;
-            
+
         *Dest++ = (Alpha << 24) | (Blue << 16) | (Green << 8) | (Red << 0);
+
+        if (CopyIndex != 0 && (CopyIndex % 400 == 0))
+        {
+            Row += Buffer->Width;
+            Dest = Row;
+        }
     }
 
 
