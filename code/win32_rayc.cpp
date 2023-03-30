@@ -1,10 +1,13 @@
 #include "rayc.cpp"
 
 #include <windows.h>
+#include <windowsx.h>
 
 global_variable bool32 GlobalRunning;
 global_variable i64 GlobalPerfCountFrequency;
 global_variable bool32 GlobalSleepIsGranular;
+global_variable HWND GlobalWindow;
+global_variable game_input GlobalGameInput;
 
 internal void
 DEBUGPrintString(const char *Format, ...)
@@ -36,6 +39,30 @@ Win32MainWindowCallback(HWND Window,
         case WM_DESTROY:
         {
             GlobalRunning = false;
+        } break;
+
+        case WM_MOUSEMOVE:
+        case WM_MOUSEWHEEL:
+        {
+            RECT WindowRect;
+            GetWindowRect(GlobalWindow, &WindowRect);
+            i32 WindowWidth = WindowRect.right - WindowRect.left;
+            i32 WindowHeight = WindowRect.bottom - WindowRect.top;
+            POINT MouseDefaultPosition;
+            MouseDefaultPosition.x = WindowWidth/2;
+            MouseDefaultPosition.y = WindowHeight/2;
+
+            i32 MouseCurrentX = GET_X_LPARAM(LParam);
+            i32 MouseCurrentY = GET_Y_LPARAM(LParam);
+            GlobalGameInput.MouseDX = MouseCurrentX - MouseDefaultPosition.x;
+            GlobalGameInput.MouseDY = MouseCurrentY - MouseDefaultPosition.y;
+            if (Message == WM_MOUSEWHEEL)
+            {
+                GlobalGameInput.MouseDZ = GET_WHEEL_DELTA_WPARAM(WParam);
+            }
+
+            ClientToScreen(GlobalWindow, &MouseDefaultPosition);
+            SetCursorPos(MouseDefaultPosition.x, MouseDefaultPosition.y);
         } break;
 
         default:
@@ -92,10 +119,20 @@ Win32ProcessPendingMessage(game_input *InputData)
                         {
                             InputData->Right = IsDown;
                         } break;
+
+                        case VK_LBUTTON:
+                        {
+                            InputData->MouseLeft = IsDown;
+                        } break;
+                        
+                        case VK_RBUTTON:
+                        {
+                            InputData->MouseRight = IsDown;
+                        } break;
                     }
                 }
             } break;
-                        
+            
             default:
             {
                 TranslateMessage(&Message);
@@ -182,7 +219,7 @@ WinMain(HINSTANCE Instance,
         int WindowWidth = WindowRect.right - WindowRect.left;
         int WindowHeight = WindowRect.bottom - WindowRect.top;
 
-        HWND Window = CreateWindowExA(0,
+        GlobalWindow = CreateWindowExA(0,
                                       WindowClass.lpszClassName,
                                       "rayc",
                                       WindowStyle,
@@ -195,7 +232,7 @@ WinMain(HINSTANCE Instance,
                                       Instance,
                                       0);
 
-        if (Window)
+        if (GlobalWindow)
         {
             game_offscreen_buffer GameBuffer = {};
             GameBuffer.Width = ClientWidth;
@@ -213,7 +250,6 @@ WinMain(HINSTANCE Instance,
             BitmapInfo.bmiHeader.biBitCount = 32;
             BitmapInfo.bmiHeader.biCompression = BI_RGB;
             
-            game_input GameInput = {};
             game_state GameState = {};
             GameStateInit(&GameState);
 
@@ -229,13 +265,18 @@ WinMain(HINSTANCE Instance,
             GlobalSleepIsGranular = (timeBeginPeriod(DesiredSchedulerMS) == TIMERR_NOERROR);
 
             f32 TargetSecondsPerFrame = 1 / 60.0f; // 60FPS
-            GameInput.SecondsPerFrame = TargetSecondsPerFrame;
+            GlobalGameInput.SecondsPerFrame = TargetSecondsPerFrame;
+
+            // NOTE: Disable mouse cursor
+            ShowCursor(false);
             
             GlobalRunning = true;
             while (GlobalRunning)
             {
-                Win32ProcessPendingMessage(&GameInput);
-                GameUpdateAndRender(&GameState, &GameInput, &GameBuffer);
+                game_input ZeroGameInput = {0};
+                GlobalGameInput = ZeroGameInput;
+                Win32ProcessPendingMessage(&GlobalGameInput);
+                GameUpdateAndRender(&GameState, &GlobalGameInput, &GameBuffer);
 
                 LARGE_INTEGER WorkCounter = Win32GetWallClock();
                 f32 WorkSecondsElapsed = Win32GetSecondsElapsed(LastCounter, WorkCounter);
@@ -244,14 +285,14 @@ WinMain(HINSTANCE Instance,
                 SecondsElapsedForFrame = Win32GetSecondsElapsed(LastCounter, EndCounter);
                 LastCounter = EndCounter;
                 
-                HDC DeviceContext = GetDC(Window);
+                HDC DeviceContext = GetDC(GlobalWindow);
                 StretchDIBits(DeviceContext,
                               0, 0, GameBuffer.Width, GameBuffer.Height,
                               0, 0, GameBuffer.Width, GameBuffer.Height,
                               GameBuffer.Data,
                               &BitmapInfo,
                               DIB_RGB_COLORS, SRCCOPY);
-                ReleaseDC(Window, DeviceContext);
+                ReleaseDC(GlobalWindow, DeviceContext);
 
                 f32 WorkPercent  = WorkSecondsElapsed / SecondsElapsedForFrame * 100.0f;
                 if (WorkPercent > 80.0f)

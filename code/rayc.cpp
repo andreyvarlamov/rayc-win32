@@ -39,6 +39,16 @@ struct game_input
 {
     f32 SecondsPerFrame;
 
+    bool32 MouseLeft;
+    bool32 MouseRight;
+    i32 MouseDX;
+    i32 MouseDY;
+    i32 MouseDZ;
+
+    bool32 Forward;
+    bool32 StrafeLeft;
+    bool32 StrafeRight;
+    bool32 Back;
     bool32 Up;
     bool32 Down;
     bool32 Left;
@@ -482,6 +492,8 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
             *RaycastHitMap++ = 0;
         }
     }
+
+    DEBUGPrintString("MouseInput: DX=%d, DY=%d, DZ=%d\n", Input->MouseDX, Input->MouseDY, Input->MouseDZ);
 
     // TODO: Start measuring performance
     i32 RayNumber = RAYCAST_NUM;
