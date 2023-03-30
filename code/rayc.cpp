@@ -527,8 +527,33 @@ ProcessInput(game_state *State, game_input *Input)
     f32 PlayerAngleCos = cosf(State->PlayerAngle);
     f32 PlayerAngleSin = sinf(State->PlayerAngle);
 
-    State->PlayerX += PlayerDForward*PlayerAngleCos + PlayerDStrafe*PlayerAngleSin;
-    State->PlayerY += -PlayerDForward*PlayerAngleSin + PlayerDStrafe*PlayerAngleCos;
+    f32 PlayerDX = PlayerDForward*PlayerAngleCos + PlayerDStrafe*PlayerAngleSin;
+    f32 PlayerDY = -PlayerDForward*PlayerAngleSin + PlayerDStrafe*PlayerAngleCos;
+    f32 NewPlayerX = State->PlayerX + PlayerDX;
+    f32 NewPlayerY = State->PlayerY + PlayerDY;
+
+    f32 WallSlideDeadzone = 0.015f;
+
+    if (!State->Map[TruncateF32ToI32(NewPlayerY)][TruncateF32ToI32(NewPlayerX)])
+    {
+        State->PlayerX = NewPlayerX;
+        State->PlayerY = NewPlayerY;
+    }
+    else if (!State->Map[TruncateF32ToI32(NewPlayerY)][TruncateF32ToI32(State->PlayerX)])
+    {
+        if (AbsoluteF32(PlayerDY) > WallSlideDeadzone)
+        {
+            State->PlayerY = NewPlayerY;
+        }
+    }
+    else if (!State->Map[TruncateF32ToI32(State->PlayerY)][TruncateF32ToI32(NewPlayerX)])
+    {
+        if (AbsoluteF32(PlayerDX) > WallSlideDeadzone)
+        {
+            State->PlayerX = NewPlayerX;
+        }
+    }
+
 }
 
 internal void
