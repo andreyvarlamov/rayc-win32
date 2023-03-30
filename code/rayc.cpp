@@ -49,6 +49,7 @@ struct game_input
     bool32 StrafeLeft;
     bool32 StrafeRight;
     bool32 Back;
+    
     bool32 Up;
     bool32 Down;
     bool32 Left;
@@ -523,8 +524,11 @@ ProcessInput(game_state *State, game_input *Input)
         PlayerDStrafe *= DiagonalMovementCoefficient;
     }
 
-    State->PlayerX += PlayerDForward*cosf(State->PlayerAngle) + PlayerDStrafe*sinf(State->PlayerAngle);
-    State->PlayerY += -PlayerDForward*sinf(State->PlayerAngle) + PlayerDStrafe*cosf(State->PlayerAngle);
+    f32 PlayerAngleCos = cosf(State->PlayerAngle);
+    f32 PlayerAngleSin = sinf(State->PlayerAngle);
+
+    State->PlayerX += PlayerDForward*PlayerAngleCos + PlayerDStrafe*PlayerAngleSin;
+    State->PlayerY += -PlayerDForward*PlayerAngleSin + PlayerDStrafe*PlayerAngleCos;
 }
 
 internal void
