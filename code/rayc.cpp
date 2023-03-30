@@ -79,9 +79,6 @@ struct ray_data
 
 struct game_state
 {
-    int GreenOffset;
-    int BlueOffset;
-
     f32 PlayerX;
     f32 PlayerY;
     f32 PlayerAngle;
@@ -92,27 +89,79 @@ struct game_state
     ray_data RaycastData[RAYCAST_NUM];
 };
 
+struct platform_read_file_result
+{
+    u32 ContentsSize;
+    void *Contents;
+};
+
 internal void
 DEBUGPrintString(const char *Format, ...);
 
-internal i32
+internal void
+PLATFORMFreeFileMemory(void *Memory);
+
+internal platform_read_file_result
+PLATFORMReadEntireFile(char *Filename);
+
+inline u32
+SafeTruncateU64(u64 Value)
+{
+    // TODO: Defines for maximum values
+    Assert(Value <= 0xFFFFFFFF);
+    u32 Result = (u32)Value;
+    return Result;
+}
+
+inline i32
 RoundF32ToI32(f32 Real)
 {
     i32 Result = (i32)(Real + 0.5f);
     return Result;
 }
 
-internal i32
+inline i32
 TruncateF32ToI32(f32 Real)
 {
     i32 Result = (i32)Real;
     return Result;
 }
 
-internal f32
+inline f32
 AbsoluteF32(f32 Value)
 {
     f32 Result = ((Value > 0) ? Value : -Value);
+    return Result;
+}
+
+#pragma pack(push, 1)
+struct bitmap_header
+{
+    u16 FileType;
+    u32 FileSize;
+    u16 Reserved1;
+    u16 Reserved2;
+    u32 BitmapOffset;
+    u32 Size;
+    i32 Width;
+    i32 Height;
+    u16 Planes;
+    u16 BitsPerPixel;
+};
+#pragma pack(pop)
+
+internal u32 *
+LoadBMP(char *Filename)
+{
+    u32 *Result = 0;
+    platform_read_file_result ReadResult = PLATFORMReadEntireFile(Filename);
+    if (ReadResult.ContentsSize != 0)
+    {
+        bitmap_header *Header = (bitmap_header *)ReadResult.Contents;
+        u32 *Pixels = (u32 *)((u8 *)ReadResult.Contents + Header->BitmapOffset);
+        Result = Pixels;
+    }
+
     return Result;
 }
 
@@ -572,6 +621,26 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
 
     ProcessInput(State, Input);
 
+    u32 *BMP = LoadBMP("textures/brickBIG.bmp");
+    Assert(BMP);
+
+    u8 *Source = (u8 *)BMP;
+    u32 *Dest = (u32 *)Buffer->Data;
+    
+    for (int CopyIndex = 0;
+         CopyIndex < 100000;
+         ++CopyIndex)
+    {
+        u8 Alpha = 0xFF;
+        u8 Red = *Source++;
+        u8 Green = *Source++;
+        u8 Blue = *Source++;
+            
+        *Dest++ = (Alpha << 24) | (Blue << 16) | (Green << 8) | (Red << 0);
+    }
+
+
+#if 0
     i32 RayNumber = RAYCAST_NUM;
     f32 ColumnWidth = (f32)Buffer->Width / (f32)RayNumber;
     f32 CurrentColumn = 0.0f;
@@ -621,4 +690,5 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 MinimapMinY = (f32)Buffer->Height - MinimapHeight;
     f32 MinimapMaxY = (f32)Buffer->Height;
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
+#endif
 }

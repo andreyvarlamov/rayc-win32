@@ -21,6 +21,56 @@ DEBUGPrintString(const char *Format, ...)
     OutputDebugStringA(CharBuffer);
 }
 
+internal void
+PLATFORMFreeFileMemory(void *Memory)
+{
+    if (Memory)
+    {
+        VirtualFree(Memory, 0, MEM_RELEASE);
+    }
+}
+
+internal platform_read_file_result
+PLATFORMReadEntireFile(char *Filename)
+{
+    platform_read_file_result Result = {0};
+    
+    HANDLE FileHandle = CreateFileA(Filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+    if (FileHandle != INVALID_HANDLE_VALUE)
+    {
+        LARGE_INTEGER FileSize;
+        if (GetFileSizeEx(FileHandle, &FileSize))
+        {
+            u32 FileSize32 = SafeTruncateU64(FileSize.QuadPart);
+            Result.Contents = VirtualAlloc(0, FileSize32, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            if (Result.Contents)
+            {
+                DWORD BytesRead;
+                if (ReadFile(FileHandle, Result.Contents, FileSize32, &BytesRead, 0) &&
+                    (FileSize32 == BytesRead))
+                {
+                    Result.ContentsSize = FileSize32;
+                }
+                else
+                {
+                    PLATFORMFreeFileMemory(Result.Contents);
+                    Result.Contents = 0;
+                }
+            }
+            else
+            {
+                // TODO: Logging
+            }
+        }
+    }
+    else
+    {
+        // TODO: Logging
+    }
+
+    return Result;
+}
+
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window,
                    UINT Message,
