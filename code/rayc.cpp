@@ -480,6 +480,54 @@ GameStateInit(game_state *State)
 }
 
 internal void
+ProcessInput(game_state *State, game_input *Input)
+{
+    i32 MouseXDeltaRange = 700;
+    State->PlayerAngle += -((f32)Input->MouseDX/(f32)MouseXDeltaRange) * Input->SecondsPerFrame * 20.0f;
+    if (State->PlayerAngle >= 2*Pi32)
+    {
+        State->PlayerAngle -= 2*Pi32;
+    }
+    else if (State->PlayerAngle < 0.0f)
+    {
+        State->PlayerAngle += 2*Pi32;
+    }
+
+    f32 PlayerVelocity = 2.0f; // tiles/sec
+
+    f32 DiagonalMovementCoefficient = 0.707107f; // 1/sqrt(2)
+
+    f32 PlayerDForward = 0.0f;
+    f32 PlayerDStrafe = 0.0f;
+    if (Input->Forward)
+    {
+        PlayerDForward = PlayerVelocity * Input->SecondsPerFrame;
+    }
+    else if (Input->Back)
+    {
+        PlayerDForward = -PlayerVelocity * Input->SecondsPerFrame;
+    }
+    
+    if (Input->StrafeLeft)
+    {
+        PlayerDStrafe = -PlayerVelocity * Input->SecondsPerFrame;
+    }
+    else if (Input->StrafeRight)
+    {
+        PlayerDStrafe = PlayerVelocity * Input->SecondsPerFrame;
+    }
+
+    if (AbsoluteF32(PlayerDForward) > 0.0f && AbsoluteF32(PlayerDStrafe) > 0.0f)
+    {
+        PlayerDForward *= DiagonalMovementCoefficient;
+        PlayerDStrafe *= DiagonalMovementCoefficient;
+    }
+
+    State->PlayerX += PlayerDForward*cosf(State->PlayerAngle) + PlayerDStrafe*sinf(State->PlayerAngle);
+    State->PlayerY += -PlayerDForward*sinf(State->PlayerAngle) + PlayerDStrafe*cosf(State->PlayerAngle);
+}
+
+internal void
 GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer *Buffer)
 {
     DrawRectangle(Buffer, 0.0f, 0.0f, (f32)Buffer->Width, (f32)Buffer->Height, 0xFF000000, 0xFF000000);
@@ -493,16 +541,14 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         }
     }
 
-    DEBUGPrintString("MouseInput: DX=%d, DY=%d, DZ=%d\n", Input->MouseDX, Input->MouseDY, Input->MouseDZ);
+    ProcessInput(State, Input);
 
-    // TODO: Start measuring performance
     i32 RayNumber = RAYCAST_NUM;
     f32 ColumnWidth = (f32)Buffer->Width / (f32)RayNumber;
     f32 CurrentColumn = 0.0f;
     f32 ScreenCenter = (f32)Buffer->Height / 2.0f;
     
     f32 RayAngle = State->PlayerAngle + Pi32 / 6.0f;
-    // f32 RayAngle = State->PlayerAngle;
     f32 FovEnd = State->PlayerAngle - Pi32 / 6.0f;
     f32 dAngle = (FovEnd - RayAngle) / (f32)RayNumber;
 
@@ -535,18 +581,8 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
 
         State->RaycastData[RayIndex] = RayData;
 
-        //DEBUGPrintString("Ray %d: %0.2f\n", RayIndex, Distance);
-
         RayAngle += dAngle;
         CurrentColumn += ColumnWidth;
-    }
-
-    //DEBUGPrintString("\n\n---------END FRAME-------\n\n");
-
-    State->PlayerAngle += 0.001f;
-    if (State->PlayerAngle >= 2*Pi32)
-    {
-        State->PlayerAngle = 0.0f;
     }
 
     f32 MinimapWidth = 450;

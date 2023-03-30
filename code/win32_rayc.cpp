@@ -120,14 +120,33 @@ Win32ProcessPendingMessage(game_input *InputData)
                             InputData->Right = IsDown;
                         } break;
 
-                        case VK_LBUTTON:
+                        case 'W':
                         {
-                            InputData->MouseLeft = IsDown;
+                            InputData->Forward = IsDown;
                         } break;
-                        
-                        case VK_RBUTTON:
+
+                        case 'A':
                         {
-                            InputData->MouseRight = IsDown;
+                            InputData->StrafeLeft = IsDown;
+                        } break;
+
+                        case 'S':
+                        {
+                            InputData->Back = IsDown;
+                        } break;
+
+                        case 'D':
+                        {
+                            InputData->StrafeRight = IsDown;
+                        } break;
+
+                        case VK_F4:
+                        {
+                            bool32 AltKeyWasDown = Message.lParam & (1 << 29);
+                            if (AltKeyWasDown)
+                            {
+                                GlobalRunning = false;
+                            }
                         } break;
                     }
                 }
@@ -273,9 +292,13 @@ WinMain(HINSTANCE Instance,
             GlobalRunning = true;
             while (GlobalRunning)
             {
-                game_input ZeroGameInput = {0};
-                GlobalGameInput = ZeroGameInput;
+                // game_input ZeroGameInput = {0};
+                // GlobalGameInput = ZeroGameInput;
+                GlobalGameInput.MouseDZ = 0;
+                GlobalGameInput.MouseLeft = GetKeyState(VK_LBUTTON) & (1 << 15);
+                GlobalGameInput.MouseRight = GetKeyState(VK_RBUTTON) & (1 << 15);
                 Win32ProcessPendingMessage(&GlobalGameInput);
+                
                 GameUpdateAndRender(&GameState, &GlobalGameInput, &GameBuffer);
 
                 LARGE_INTEGER WorkCounter = Win32GetWallClock();
