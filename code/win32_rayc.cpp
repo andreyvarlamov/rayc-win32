@@ -4,8 +4,9 @@
 #include <windowsx.h>
 
 global_variable bool32 GlobalRunning;
-global_variable i64 GlobalPerfCountFrequency;
 global_variable bool32 GlobalSleepIsGranular;
+global_variable bool32 GlobalShouldCaptureMouse;
+global_variable i64 GlobalPerfCountFrequency;
 global_variable HWND GlobalWindow;
 global_variable game_input GlobalGameInput;
 
@@ -71,6 +72,19 @@ PLATFORMReadEntireFile(char *Filename)
     return Result;
 }
 
+inline void
+Win32SetMouseCursorVisibile(bool32 Enabled)
+{
+    if (Enabled)
+    {
+        while (ShowCursor(true) < 0) {}
+    }
+    else
+    {
+        while (ShowCursor(false) >= 0) {}
+    }
+}
+
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window,
                    UINT Message,
@@ -94,25 +108,35 @@ Win32MainWindowCallback(HWND Window,
         case WM_MOUSEMOVE:
         case WM_MOUSEWHEEL:
         {
-            RECT WindowRect;
-            GetWindowRect(GlobalWindow, &WindowRect);
-            i32 WindowWidth = WindowRect.right - WindowRect.left;
-            i32 WindowHeight = WindowRect.bottom - WindowRect.top;
-            POINT MouseDefaultPosition;
-            MouseDefaultPosition.x = WindowWidth/2;
-            MouseDefaultPosition.y = WindowHeight/2;
-
-            i32 MouseCurrentX = GET_X_LPARAM(LParam);
-            i32 MouseCurrentY = GET_Y_LPARAM(LParam);
-            GlobalGameInput.MouseDX = MouseCurrentX - MouseDefaultPosition.x;
-            GlobalGameInput.MouseDY = MouseCurrentY - MouseDefaultPosition.y;
-            if (Message == WM_MOUSEWHEEL)
+            if (GlobalShouldCaptureMouse)
             {
-                GlobalGameInput.MouseDZ = GET_WHEEL_DELTA_WPARAM(WParam);
-            }
+                RECT WindowRect;
+                GetWindowRect(GlobalWindow, &WindowRect);
+                i32 WindowWidth = WindowRect.right - WindowRect.left;
+                i32 WindowHeight = WindowRect.bottom - WindowRect.top;
+                POINT MouseDefaultPosition;
+                MouseDefaultPosition.x = WindowWidth/2;
+                MouseDefaultPosition.y = WindowHeight/2;
 
-            ClientToScreen(GlobalWindow, &MouseDefaultPosition);
-            SetCursorPos(MouseDefaultPosition.x, MouseDefaultPosition.y);
+                i32 MouseCurrentX = GET_X_LPARAM(LParam);
+                i32 MouseCurrentY = GET_Y_LPARAM(LParam);
+                
+                GlobalGameInput.MouseDX = MouseCurrentX - MouseDefaultPosition.x;
+                GlobalGameInput.MouseDY = MouseCurrentY - MouseDefaultPosition.y;
+                if (Message == WM_MOUSEWHEEL)
+                {
+                    GlobalGameInput.MouseDZ = GET_WHEEL_DELTA_WPARAM(WParam);
+                }
+
+                ClientToScreen(GlobalWindow, &MouseDefaultPosition);
+                SetCursorPos(MouseDefaultPosition.x, MouseDefaultPosition.y);
+            }
+            else
+            {
+                GlobalGameInput.MouseDX = 0;
+                GlobalGameInput.MouseDY = 0;
+                GlobalGameInput.MouseDZ = 0;
+            }
         } break;
 
         default:
@@ -196,6 +220,15 @@ Win32ProcessPendingMessage(game_input *InputData)
                             if (AltKeyWasDown)
                             {
                                 GlobalRunning = false;
+                            }
+                        } break;
+
+                        case 'M':
+                        {
+                            if (IsDown)
+                            {
+                                GlobalShouldCaptureMouse = !GlobalShouldCaptureMouse;
+                                Win32SetMouseCursorVisibile(!GlobalShouldCaptureMouse);
                             }
                         } break;
                     }
@@ -336,9 +369,8 @@ WinMain(HINSTANCE Instance,
             f32 TargetSecondsPerFrame = 1 / 60.0f; // 60FPS
             GlobalGameInput.SecondsPerFrame = TargetSecondsPerFrame;
 
-            // NOTE: Disable mouse cursor
-            ShowCursor(false);
-            
+            Win32SetMouseCursorVisibile(!GlobalShouldCaptureMouse);
+
             GlobalRunning = true;
             while (GlobalRunning)
             {
