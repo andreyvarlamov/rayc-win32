@@ -75,8 +75,22 @@ struct ray_data
     f32 Distance;
 };
 
-#define RAYCAST_NUM 1600
+struct texture
+{
+    void *Pixels;
+    i32 Width;
+    i32 Height;
+    i32 BytesPerPixel;
+    i32 Pitch;
+};
 
+#define TEXTURE_NUM 16
+struct render_data
+{
+    texture Textures[TEXTURE_NUM];
+};
+
+#define RAYCAST_NUM 1600
 struct game_state
 {
     f32 PlayerX;
@@ -87,6 +101,8 @@ struct game_state
     u8 RaycastHitMap[8][8];
     u32 MapColors[8][8];
     ray_data RaycastData[RAYCAST_NUM];
+
+    render_data RenderData;
 };
 
 struct platform_read_file_result
@@ -150,19 +166,68 @@ struct bitmap_header
 };
 #pragma pack(pop)
 
-internal u32 *
+internal texture
 LoadBMP(char *Filename)
 {
-    u32 *Result = 0;
+    texture Result = {0};
     platform_read_file_result ReadResult = PLATFORMReadEntireFile(Filename);
     if (ReadResult.ContentsSize != 0)
     {
         bitmap_header *Header = (bitmap_header *)ReadResult.Contents;
-        u32 *Pixels = (u32 *)((u8 *)ReadResult.Contents + Header->BitmapOffset);
-        Result = Pixels;
+        Result.Pixels = (u8 *)ReadResult.Contents + Header->BitmapOffset;
+        Result.Width = Header->Width;
+        Result.Height = Header->Height;
+        Result.BytesPerPixel = 4;
+        Result.Pitch = Result.Width * Result.BytesPerPixel;
     }
 
     return Result;
+}
+
+internal void
+DrawBitmap(game_offscreen_buffer *Buffer,
+           texture Bitmap,
+           f32 RealMinX, f32 RealMinY,
+           f32 RealMaxX, f32 RealMaxY)
+{
+    i32 MinX = RoundF32ToI32(RealMinX);
+    i32 MinY = RoundF32ToI32(RealMinY);
+    i32 MaxX = RoundF32ToI32(RealMaxX);
+    i32 MaxY = RoundF32ToI32(RealMaxY);
+    if (MinX < 0) MinX = 0;
+    if (MinY < 0) MinY = 0;
+    if (MaxX > Buffer->Width) MaxX = Buffer->Width;
+    if (MaxY > Buffer->Height) MaxY = Buffer->Height;
+
+    u8 *DestRow = ((u8 *)Buffer->Data +
+               MinX * Buffer->BytesPerPixel +
+               MinY * Buffer->Pitch);
+    u8 *SourceRow = (u8 *)Bitmap.Pixels + (Bitmap.Height-1)*Bitmap.Pitch;
+    for (int Y = MinY;
+         Y < MaxY;
+         ++Y)
+    {
+        if ((Y-MinY) >= Bitmap.Height)
+        {
+            break;
+        }
+        
+        u32 *DestPixel = (u32 *)DestRow;
+        u32 *SourcePixel = (u32 *)SourceRow;
+        for (int X = MinX;
+             X < MaxX;
+             ++X)
+        {
+            if ((X-MinX) >= Bitmap.Width)
+            {
+                break;
+            }
+            *DestPixel++ = *SourcePixel++;
+        }
+        
+        DestRow += Buffer->Pitch;
+        SourceRow -= Bitmap.Pitch;
+    }
 }
 
 internal void
@@ -527,6 +592,12 @@ GameStateInit(game_state *State)
         *MapColors++ = MapTileColor;
         MapTileColor = (MapTileColor + 0xFFABCDEF) % 0xFFFFFFFF;
     }
+
+    render_data RenderData = {0};
+
+    RenderData.Textures[0] = LoadBMP("textures/brick.bmp");
+    
+    State->RenderData = RenderData;
 }
 
 internal void
@@ -621,33 +692,6 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
 
     ProcessInput(State, Input);
 
-    u32 *BMP = LoadBMP("textures/brickBIG.bmp");
-    Assert(BMP);
-
-    u8 *Source = (u8 *)BMP;
-    u32 *Row = (u32 *)Buffer->Data;
-    u32 *Dest = Row;
-    
-    for (int CopyIndex = 0;
-         CopyIndex < 160000;
-         ++CopyIndex)
-    {
-        u8 Alpha = 0xFF;
-        u8 Red = *Source++;
-        u8 Green = *Source++;
-        u8 Blue = *Source++;
-
-        *Dest++ = (Alpha << 24) | (Blue << 16) | (Green << 8) | (Red << 0);
-
-        if (CopyIndex != 0 && (CopyIndex % 400 == 0))
-        {
-            Row += Buffer->Width;
-            Dest = Row;
-        }
-    }
-
-
-#if 0
     i32 RayNumber = RAYCAST_NUM;
     f32 ColumnWidth = (f32)Buffer->Width / (f32)RayNumber;
     f32 CurrentColumn = 0.0f;
@@ -697,5 +741,7 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 MinimapMinY = (f32)Buffer->Height - MinimapHeight;
     f32 MinimapMaxY = (f32)Buffer->Height;
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
-#endif
+
+    DrawBitmap(Buffer, State->RenderData.Textures[0], 0.0f, 0.0f, 400.0f, 400.0f);
+    
 }
