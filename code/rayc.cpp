@@ -185,70 +185,107 @@ LoadBMP(char *Filename)
 }
 
 internal void
-DrawBitmap(game_offscreen_buffer *Buffer,
-           texture Bitmap,
-           f32 RealMinX, f32 RealMinY,
-           f32 RealMaxX, f32 RealMaxY,
-           i32 OffsetBitmapX, i32 OffsetBitmapY,
-           bool32 StretchX, bool32 StretchY)
+DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
+           f32 RealDestMinX, f32 RealDestMinY,
+           f32 RealDestMaxX, f32 RealDestMaxY,
+           f32 RealScaleX, f32 RealScaleY,
+           f32 RealScaledOffsetX, f32 RealScaledOffsetY)
 {
-    i32 MinX = RoundF32ToI32(RealMinX);
-    i32 MinY = RoundF32ToI32(RealMinY);
-    i32 MaxX = RoundF32ToI32(RealMaxX);
-    i32 MaxY = RoundF32ToI32(RealMaxY);
-    if (MinX < 0) MinX = 0;
-    if (MinY < 0) MinY = 0;
-    if (MaxX > Buffer->Width) MaxX = Buffer->Width;
-    if (MaxY > Buffer->Height) MaxY = Buffer->Height;
+    i32 DestMinX = RoundF32ToI32(RealDestMinX);
+    i32 DestMinY = RoundF32ToI32(RealDestMinY);
+    i32 DestMaxX = RoundF32ToI32(RealDestMaxX);
+    i32 DestMaxY = RoundF32ToI32(RealDestMaxY);
+    if (DestMinX < 0) DestMinX = 0;
+    if (DestMinY < 0) DestMinY = 0;
+    if (DestMaxX > DestBuffer->Width) DestMaxX = DestBuffer->Width;
+    if (DestMaxY > DestBuffer->Height) DestMaxY = DestBuffer->Height;
 
-    u8 *DestRow = ((u8 *)Buffer->Data +
-                   MinX*Buffer->BytesPerPixel +
-                   MinY*Buffer->Pitch);
-    u8 *Source = ((u8 *)Bitmap.Pixels +
-                  OffsetBitmapX*Bitmap.BytesPerPixel +
-                  (Bitmap.Height-OffsetBitmapY-1)*Bitmap.Pitch);
+    u8 *Destination = ((u8 *)DestBuffer->Data +
+                   DestMinX*DestBuffer->BytesPerPixel +
+                   DestMinY*DestBuffer->Pitch);
+    u8 *Source = ((u8 *)SourceBitmap.Pixels +
+                  (SourceBitmap.Height-1)*SourceBitmap.Pitch);
 
-    f32 SourcePixelIncrementX = (StretchX ?
-                                 (f32)Bitmap.Width / ((f32)MaxX-(f32)MinX) :
-                                 1.0f);
-    f32 SourcePixelIncrementY = (StretchY ?
-                                 (f32)Bitmap.Height / ((f32)MaxY-(f32)MinY) :
-                                 1.0f);
-    f32 SourcePixelOriginalPositionX = (f32)OffsetBitmapX;
-    f32 SourcePixelPositionX = SourcePixelOriginalPositionX;
-    f32 SourcePixelPositionY = 0.0f;
-    
-    for (int Y = MinY;
-         Y < MaxY;
-         ++Y)
+    i32 RoundedScaleX = RoundF32ToI32(RealScaleX);
+    i32 RoundedScaleY = RoundF32ToI32(RealScaleY);
+
+    f32 RealSourceDX, RealSourceDY;
+    if (RoundedScaleX > 0)
     {
-        i32 RoundedSourceY = RoundF32ToI32(SourcePixelPositionY);
-        if (RoundedSourceY >= Bitmap.Height-OffsetBitmapY)
+        RealSourceDX = (f32)SourceBitmap.Width / (f32)RoundedScaleX;
+    }
+    else
+    {
+        RealSourceDX = 1.0f;
+        RoundedScaleX = SourceBitmap.Width;
+    }
+    if (RoundedScaleY > 0)
+    {
+        RealSourceDY = (f32)SourceBitmap.Height/ (f32)RoundedScaleY;
+    }
+    else
+    {
+        RealSourceDY = 1.0f;
+        RoundedScaleY = SourceBitmap.Height;
+    }
+
+    if (RealScaledOffsetX < 0.0f) RealScaledOffsetX = 0.0f;
+    if (RealScaledOffsetY < 0.0f) RealScaledOffsetY = 0.0f;
+    f32 RealSourceOffsetX = RealScaledOffsetX*RealSourceDX;
+    f32 RealSourceOffsetY = RealScaledOffsetY*RealSourceDY;
+    
+    i32 ScaledColumnsToDraw = RoundedScaleX-RoundF32ToI32(RealScaledOffsetX);
+    i32 ScaledRowsToDraw = RoundedScaleY-RoundF32ToI32(RealScaledOffsetY);
+
+    i32 PixelsDrawnCount = 0;
+
+    f32 RealSourceCursorY = RealSourceOffsetY;
+    for (int DestY = DestMinY;
+         DestY < DestMaxY;
+         ++DestY)
+    {
+        i32 RowsDrawn = DestY-DestMinY;
+        if (RowsDrawn >= ScaledRowsToDraw)
         {
             break;
         }
         
-        u32 *DestPixel = (u32 *)DestRow;
-        u32 *SourcePixel = (u32 *)(Source - RoundedSourceY*Bitmap.Pitch);
-        for (int X = MinX;
-             X < MaxX;
-             ++X)
+        i32 TruncatedSourceCursorY = TruncateF32ToI32(RealSourceCursorY);
+        if (TruncatedSourceCursorY >= SourceBitmap.Height)
         {
-            i32 RoundedSourceX = RoundF32ToI32(SourcePixelPositionX);
-            if (RoundedSourceX >= Bitmap.Width-OffsetBitmapX)
+            TruncatedSourceCursorY = SourceBitmap.Height - 1;
+        }
+        
+        u32 *DestPixel = (u32 *)(Destination + RowsDrawn*DestBuffer->Pitch);
+        u32 *SourcePixel = (u32 *)(Source - TruncatedSourceCursorY*SourceBitmap.Pitch);
+        
+        f32 RealSourceCursorX = RealSourceOffsetX;
+        for (int DestX = DestMinX;
+             DestX < DestMaxX;
+             ++DestX)
+        {
+            i32 ColumnsDrawn = DestX-DestMinX;
+            if (ColumnsDrawn >= ScaledColumnsToDraw)
             {
                 break;
             }
-            *DestPixel++ = *(SourcePixel + RoundedSourceX);
-            // *DestPixel++ = 0xFFFFFFFF;  
             
-            SourcePixelPositionX += SourcePixelIncrementX;
+            i32 TruncatedSourceCursorX = TruncateF32ToI32(RealSourceCursorX);
+            if (TruncatedSourceCursorX >= SourceBitmap.Width)
+            {
+                TruncatedSourceCursorX = SourceBitmap.Width - 1;
+            }
+            
+            *(DestPixel + (DestX-DestMinX)) = *(SourcePixel + TruncatedSourceCursorX);
+            ++PixelsDrawnCount;
+            
+            RealSourceCursorX += RealSourceDX;
         }
 
-        SourcePixelPositionX = SourcePixelOriginalPositionX;
-        DestRow += Buffer->Pitch;
-        SourcePixelPositionY += SourcePixelIncrementY;
+        RealSourceCursorY += RealSourceDY;
     }
+
+    int a = 0;
 }
 
 internal void
@@ -617,6 +654,7 @@ GameStateInit(game_state *State)
     render_data RenderData = {0};
 
     RenderData.Textures[0] = LoadBMP("textures/brick.bmp");
+    RenderData.Textures[1] = LoadBMP("textures/pumpkin.bmp");
     
     State->RenderData = RenderData;
 }
@@ -764,16 +802,37 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
 
     for (int TextureXOffset = 0;
-         TextureXOffset < 400;
+         TextureXOffset < 800;
          ++TextureXOffset)
     {
-        f32 ColumnHeight = 200.0f + ((f32)TextureXOffset/400.0f)*200.0f;
-        f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
-        f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
-        DrawBitmap(Buffer, State->RenderData.Textures[0],
-                   0.0f+(f32)TextureXOffset, ColumnMinY,
-                   1.0f+(f32)TextureXOffset, ColumnMaxY,
-                   TextureXOffset, 0,
-                   false, true);
+        f32 ColumnHeight = 400.0f + (f32)TextureXOffset/2.0f;
+        f32 ColumnMinY = ScreenCenter - ColumnHeight/2.0f;
+        f32 ColumnMaxY = ScreenCenter + ColumnHeight/2.0f;
+        DrawBitmap(Buffer, State->RenderData.Textures[1],
+                   0.0f+(f32)TextureXOffset, 0.0f,
+                   1.0f+(f32)TextureXOffset, ColumnHeight,
+                   800.0f, ColumnHeight,
+                   0.0f+(f32)TextureXOffset, 0.0f);
+                   
     }
+    // DrawBitmap(Buffer, State->RenderData.Textures[1],
+    //            0.0f, 0.0f,
+    //            1000.0f, 1000.0f,
+    //            800.0f, 800.0f,
+    //            0.0f, 0.0f);
+               
+    
+    // for (int TextureXOffset = 0;
+    //      TextureXOffset < 400;
+    //      ++TextureXOffset)
+    // {
+    //     f32 ColumnHeight = 200.0f + ((f32)TextureXOffset/400.0f)*200.0f;
+    //     f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
+    //     f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
+    //     DrawBitmap(Buffer, State->RenderData.Textures[0],
+    //                0.0f+(f32)TextureXOffset, ColumnMinY,
+    //                1.0f+(f32)TextureXOffset, ColumnMaxY,
+    //                TextureXOffset, 0,
+    //                false, true);
+    // }
 }
