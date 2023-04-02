@@ -72,6 +72,7 @@ struct ray_data
     i32 TileX;
     i32 TileY;
 
+    f32 HitWallTexturePosition;
     f32 Distance;
 };
 
@@ -289,6 +290,20 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
 }
 
 internal void
+DrawWallVerticalSection(game_offscreen_buffer *Buffer,
+                        f32 RealMinX, f32 RealMinY,
+                        f32 RealMaxX, f32 RealMaxY,
+                        texture Texture,
+                        f32 TextureHorizontalPosition)
+{
+    DrawBitmap(Buffer, Texture,
+               RealMinX, RealMinY,
+               RealMaxX, RealMaxY,
+               1200.0f, RealMaxY-RealMinY,
+               1200.0f*TextureHorizontalPosition, 0.0f);
+}
+
+internal void
 DrawRectangle(game_offscreen_buffer *Buffer,
               f32 RealMinX, f32 RealMinY,
               f32 RealMaxX, f32 RealMaxY,
@@ -502,6 +517,8 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle)
 
     f32 RayAngleTan = AbsoluteF32(tanf(RayAngle));
 
+    bool32 IsInterceptHorizontal = false;
+
     // Vertical Intercepts (traversing horizontally)
     f32 VerticalInterceptX = State->PlayerX + X_StepDirection*OffsetX;
     f32 VerticalInterceptY = State->PlayerY + Y_StepDirection*OffsetX*RayAngleTan;
@@ -574,6 +591,8 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle)
                 Result.InterceptY = HorizontalInterceptY;
                 Result.TileX = HitTileX;
                 Result.TileY = HitTileY;
+
+                IsInterceptHorizontal = true;
             }
 
             break;
@@ -610,6 +629,15 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle)
     Result.Distance = (PlayerInterceptDistanceX*cosf(PlayerAngle) +
                     PlayerInterceptDistanceY*sinf(PlayerAngle));
 
+    if (IsInterceptHorizontal)
+    {
+        Result.HitWallTexturePosition = Result.InterceptX - TruncateF32ToI32(Result.InterceptX);
+    }
+    else
+    {
+        Result.HitWallTexturePosition = Result.InterceptY - TruncateF32ToI32(Result.InterceptY);
+    }
+
     // bool32 ShouldBreak = AbsoluteF32(Distance - SuperLolDistance) > 0.1f;
     
     return Result;
@@ -625,7 +653,7 @@ GameStateInit(game_state *State)
 
     u8 Map[8][8] = {
         { 1, 1, 1, 1,  1, 1, 1, 1 },
-        { 1, 0, 0, 0,  0, 0, 0, 1 },
+        { 1, 0, 0, 0,  0, 0, 0, 2 },
         { 1, 0, 0, 0,  0, 0, 0, 1 },
         { 1, 0, 0, 1,  1, 0, 0, 1 },
 
@@ -785,7 +813,15 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         {
             ColumnColor = State->MapColors[RayData.TileY][RayData.TileX];
         }
-        DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
+        if (State->Map[RayData.TileY][RayData.TileX] == 2)
+        {
+            DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
+                                    State->RenderData.Textures[1], RayData.HitWallTexturePosition);
+        }
+        else
+        {
+            DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
+        }
 
         State->RaycastData[RayIndex] = RayData;
 
@@ -801,20 +837,20 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 MinimapMaxY = (f32)Buffer->Height;
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
 
-    for (int TextureXOffset = 0;
-         TextureXOffset < 800;
-         ++TextureXOffset)
-    {
-        f32 ColumnHeight = 400.0f + (f32)TextureXOffset/2.0f;
-        f32 ColumnMinY = ScreenCenter - ColumnHeight/2.0f;
-        f32 ColumnMaxY = ScreenCenter + ColumnHeight/2.0f;
-        DrawBitmap(Buffer, State->RenderData.Textures[1],
-                   0.0f+(f32)TextureXOffset, 0.0f,
-                   1.0f+(f32)TextureXOffset, ColumnHeight,
-                   800.0f, ColumnHeight,
-                   0.0f+(f32)TextureXOffset, 0.0f);
+    // for (int TextureXOffset = 0;
+    //      TextureXOffset < 1600;
+    //      ++TextureXOffset)
+    // {
+    //     f32 ColumnHeight = 450.0f + (f32)TextureXOffset/1600.0f * 450.0f;
+    //     f32 ColumnMinY = ScreenCenter - ColumnHeight/2.0f;
+    //     f32 ColumnMaxY = ScreenCenter + ColumnHeight/2.0f;
+    //     DrawBitmap(Buffer, State->RenderData.Textures[1],
+    //                0.0f+(f32)TextureXOffset, 0.0f,
+    //                1.0f+(f32)TextureXOffset, ColumnHeight,
+    //                1600.0f, ColumnHeight,
+    //                0.0f+(f32)TextureXOffset, 0.0f);
                    
-    }
+    // }
     // DrawBitmap(Buffer, State->RenderData.Textures[1],
     //            0.0f, 0.0f,
     //            1000.0f, 1000.0f,
