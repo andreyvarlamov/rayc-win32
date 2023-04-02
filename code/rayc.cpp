@@ -296,11 +296,16 @@ DrawWallVerticalSection(game_offscreen_buffer *Buffer,
                         texture Texture,
                         f32 TextureHorizontalPosition)
 {
+    f32 TextureOffsetY = 0.0f;
+    if (RealMinY < 0.0f)
+    {
+        TextureOffsetY = (-RealMinY);
+    }
     DrawBitmap(Buffer, Texture,
                RealMinX, RealMinY,
                RealMaxX, RealMaxY,
-               1200.0f, RealMaxY-RealMinY,
-               1200.0f*TextureHorizontalPosition, 0.0f);
+               900.0f, RealMaxY-RealMinY,
+               900.0f*TextureHorizontalPosition, TextureOffsetY);
 }
 
 internal void
@@ -653,7 +658,7 @@ GameStateInit(game_state *State)
 
     u8 Map[8][8] = {
         { 1, 1, 1, 1,  1, 1, 1, 1 },
-        { 1, 0, 0, 0,  0, 0, 0, 2 },
+        { 1, 0, 0, 0,  0, 0, 0, 1 },
         { 1, 0, 0, 0,  0, 0, 0, 1 },
         { 1, 0, 0, 1,  1, 0, 0, 1 },
 
@@ -739,21 +744,27 @@ ProcessInput(game_state *State, game_input *Input)
     f32 NewPlayerX = State->PlayerX + PlayerDX;
     f32 NewPlayerY = State->PlayerY + PlayerDY;
 
+    f32 CollisionTestDirectionX = ((PlayerDX > 0.0f) ? 1.0f : -1.0f);
+    f32 CollisionTestDirectionY = ((PlayerDY > 0.0f) ? 1.0f : -1.0f);
+    f32 CollisionTestOffset = 0.2f;
+    f32 PlayerCollisionTestPositionX = NewPlayerX + CollisionTestDirectionX*CollisionTestOffset;
+    f32 PlayerCollisionTestPositionY = NewPlayerY + CollisionTestDirectionY*CollisionTestOffset;
+
     f32 WallSlideDeadzone = 0.015f;
 
-    if (!State->Map[TruncateF32ToI32(NewPlayerY)][TruncateF32ToI32(NewPlayerX)])
+    if (!State->Map[TruncateF32ToI32(PlayerCollisionTestPositionY)][TruncateF32ToI32(PlayerCollisionTestPositionX)])
     {
         State->PlayerX = NewPlayerX;
         State->PlayerY = NewPlayerY;
     }
-    else if (!State->Map[TruncateF32ToI32(NewPlayerY)][TruncateF32ToI32(State->PlayerX)])
+    else if (!State->Map[TruncateF32ToI32(PlayerCollisionTestPositionY)][TruncateF32ToI32(State->PlayerX)])
     {
         if (AbsoluteF32(PlayerDY) > WallSlideDeadzone)
         {
             State->PlayerY = NewPlayerY;
         }
     }
-    else if (!State->Map[TruncateF32ToI32(State->PlayerY)][TruncateF32ToI32(NewPlayerX)])
+    else if (!State->Map[TruncateF32ToI32(State->PlayerY)][TruncateF32ToI32(PlayerCollisionTestPositionX)])
     {
         if (AbsoluteF32(PlayerDX) > WallSlideDeadzone)
         {
@@ -797,31 +808,36 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
         // Distance: 0.0f >>> MaxDistance
         // ColumnHeight: Buffer->Height >>> 0.0f;
         // TODO: Is this right? What's the reasonable max distance?
-        f32 ColumnHeightConstant = 420.0f;
+        f32 ColumnHeightConstant = 900.0f;
         f32 ColumnHeight = ColumnHeightConstant / RayData.Distance;
-        if (ColumnHeight > (f32)Buffer->Height)
-        {
-            ColumnHeight = (f32)Buffer->Height;
-        }
+        // if (ColumnHeight > (f32)Buffer->Height)
+        // {
+        //     ColumnHeight = (f32)Buffer->Height;
+        // }
         f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
         f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
         f32 ColumnMinX = CurrentColumn;
         f32 ColumnMaxX = CurrentColumn + ColumnWidth;
         u32 ColumnColor = 0;
+        texture Texture = {0};
         if (RayData.TileX >= 0 && RayData.TileX < 8 &&
             RayData.TileY >= 0 && RayData.TileY < 8)
         {
             ColumnColor = State->MapColors[RayData.TileY][RayData.TileX];
+            Texture = (ColumnColor % 2 == 0) ? State->RenderData.Textures[1] : State->RenderData.Textures[0]; 
         }
-        if (State->Map[RayData.TileY][RayData.TileX] == 2)
-        {
-            DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
-                                    State->RenderData.Textures[1], RayData.HitWallTexturePosition);
-        }
-        else
-        {
-            DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
-        }
+        DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
+                                Texture, RayData.HitWallTexturePosition);
+
+        // if (State->Map[RayData.TileY][RayData.TileX] == 2)
+        // {
+        //     DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
+        //                             Texture, RayData.HitWallTexturePosition);
+        // }
+        // else
+        // {
+        //     DrawRectangle(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY, ColumnColor, ColumnColor);
+        // }
 
         State->RaycastData[RayIndex] = RayData;
 
