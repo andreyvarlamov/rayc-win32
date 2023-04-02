@@ -188,7 +188,9 @@ internal void
 DrawBitmap(game_offscreen_buffer *Buffer,
            texture Bitmap,
            f32 RealMinX, f32 RealMinY,
-           f32 RealMaxX, f32 RealMaxY)
+           f32 RealMaxX, f32 RealMaxY,
+           i32 OffsetBitmapX, i32 OffsetBitmapY,
+           bool32 StretchX, bool32 StretchY)
 {
     i32 MinX = RoundF32ToI32(RealMinX);
     i32 MinY = RoundF32ToI32(RealMinY);
@@ -200,59 +202,20 @@ DrawBitmap(game_offscreen_buffer *Buffer,
     if (MaxY > Buffer->Height) MaxY = Buffer->Height;
 
     u8 *DestRow = ((u8 *)Buffer->Data +
-               MinX * Buffer->BytesPerPixel +
-               MinY * Buffer->Pitch);
-    u8 *SourceRow = (u8 *)Bitmap.Pixels + (Bitmap.Height-1)*Bitmap.Pitch;
-    for (int Y = MinY;
-         Y < MaxY;
-         ++Y)
-    {
-        if ((Y-MinY) >= Bitmap.Height)
-        {
-            break;
-        }
-        
-        u32 *DestPixel = (u32 *)DestRow;
-        u32 *SourcePixel = (u32 *)SourceRow;
-        for (int X = MinX;
-             X < MaxX;
-             ++X)
-        {
-            if ((X-MinX) >= Bitmap.Width)
-            {
-                break;
-            }
-            *DestPixel++ = *SourcePixel++;
-        }
-        
-        DestRow += Buffer->Pitch;
-        SourceRow -= Bitmap.Pitch;
-    }
-}
+                   MinX*Buffer->BytesPerPixel +
+                   MinY*Buffer->Pitch);
+    u8 *Source = ((u8 *)Bitmap.Pixels +
+                  OffsetBitmapX*Bitmap.BytesPerPixel +
+                  (Bitmap.Height-OffsetBitmapY-1)*Bitmap.Pitch);
 
-internal void
-StretchBitmap(game_offscreen_buffer *Buffer,
-           texture Bitmap,
-           f32 RealMinX, f32 RealMinY,
-           f32 RealMaxX, f32 RealMaxY)
-{
-    i32 MinX = RoundF32ToI32(RealMinX);
-    i32 MinY = RoundF32ToI32(RealMinY);
-    i32 MaxX = RoundF32ToI32(RealMaxX);
-    i32 MaxY = RoundF32ToI32(RealMaxY);
-    if (MinX < 0) MinX = 0;
-    if (MinY < 0) MinY = 0;
-    if (MaxX > Buffer->Width) MaxX = Buffer->Width;
-    if (MaxY > Buffer->Height) MaxY = Buffer->Height;
-
-    u8 *DestRow = ((u8 *)Buffer->Data +
-               MinX * Buffer->BytesPerPixel +
-               MinY * Buffer->Pitch);
-    u8 *Source = (u8 *)Bitmap.Pixels + (Bitmap.Height-1)*Bitmap.Pitch;
-
-    f32 SourcePixelIncrementX = (f32)Bitmap.Width / ((f32)MaxX-(f32)MinX);
-    f32 SourcePixelIncrementY = (f32)Bitmap.Height / ((f32)MaxY-(f32)MinY);
-    f32 SourcePixelPositionX = 0.0f;
+    f32 SourcePixelIncrementX = (StretchX ?
+                                 (f32)Bitmap.Width / ((f32)MaxX-(f32)MinX) :
+                                 1.0f);
+    f32 SourcePixelIncrementY = (StretchY ?
+                                 (f32)Bitmap.Height / ((f32)MaxY-(f32)MinY) :
+                                 1.0f);
+    f32 SourcePixelOriginalPositionX = (f32)OffsetBitmapX;
+    f32 SourcePixelPositionX = SourcePixelOriginalPositionX;
     f32 SourcePixelPositionY = 0.0f;
     
     for (int Y = MinY;
@@ -260,7 +223,7 @@ StretchBitmap(game_offscreen_buffer *Buffer,
          ++Y)
     {
         i32 RoundedSourceY = RoundF32ToI32(SourcePixelPositionY);
-        if (RoundedSourceY >= Bitmap.Height)
+        if (RoundedSourceY >= Bitmap.Height-OffsetBitmapY)
         {
             break;
         }
@@ -272,7 +235,7 @@ StretchBitmap(game_offscreen_buffer *Buffer,
              ++X)
         {
             i32 RoundedSourceX = RoundF32ToI32(SourcePixelPositionX);
-            if (RoundedSourceX >= Bitmap.Width)
+            if (RoundedSourceX >= Bitmap.Width-OffsetBitmapX)
             {
                 break;
             }
@@ -282,7 +245,7 @@ StretchBitmap(game_offscreen_buffer *Buffer,
             SourcePixelPositionX += SourcePixelIncrementX;
         }
 
-        SourcePixelPositionX = 0.0f;
+        SourcePixelPositionX = SourcePixelOriginalPositionX;
         DestRow += Buffer->Pitch;
         SourcePixelPositionY += SourcePixelIncrementY;
     }
@@ -800,6 +763,17 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 MinimapMaxY = (f32)Buffer->Height;
     DEBUGDrawMinimap(Buffer, State, MinimapMinX, MinimapMinY, MinimapMaxX, MinimapMaxY);
 
-    StretchBitmap(Buffer, State->RenderData.Textures[0], 0.0f, 0.0f, 400.0f, 400.0f);
-    
+    for (int TextureXOffset = 0;
+         TextureXOffset < 400;
+         ++TextureXOffset)
+    {
+        f32 ColumnHeight = 200.0f + ((f32)TextureXOffset/400.0f)*200.0f;
+        f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
+        f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
+        DrawBitmap(Buffer, State->RenderData.Textures[0],
+                   0.0f+(f32)TextureXOffset, ColumnMinY,
+                   1.0f+(f32)TextureXOffset, ColumnMaxY,
+                   TextureXOffset, 0,
+                   false, true);
+    }
 }
