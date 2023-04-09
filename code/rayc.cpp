@@ -62,6 +62,12 @@ struct point_real
     f32 Y;
 };
 
+struct ray_to_point
+{
+    f32 Distance;
+    f32 Angle;
+};
+
 struct ray_data
 {
     f32 RayAngle;
@@ -97,6 +103,9 @@ struct game_state
     f32 PlayerX;
     f32 PlayerY;
     f32 PlayerAngle;
+
+    f32 EnemyX;
+    f32 EnemyY;
 
     u8 Map[8][8];
     u8 RaycastHitMap[8][8];
@@ -186,7 +195,7 @@ LoadBMP(char *Filename)
 }
 
 internal void
-DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
+DrawBitmap(game_offscreen_buffer *DestBuffer, texture *SourceBitmap,
            f32 RealDestMinX, f32 RealDestMinY,
            f32 RealDestMaxX, f32 RealDestMaxY,
            f32 RealScaleX, f32 RealScaleY,
@@ -204,8 +213,8 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
     u8 *Destination = ((u8 *)DestBuffer->Data +
                    DestMinX*DestBuffer->BytesPerPixel +
                    DestMinY*DestBuffer->Pitch);
-    u8 *Source = ((u8 *)SourceBitmap.Pixels +
-                  (SourceBitmap.Height-1)*SourceBitmap.Pitch);
+    u8 *Source = ((u8 *)SourceBitmap->Pixels +
+                  (SourceBitmap->Height-1)*SourceBitmap->Pitch);
 
     i32 RoundedScaleX = RoundF32ToI32(RealScaleX);
     i32 RoundedScaleY = RoundF32ToI32(RealScaleY);
@@ -213,21 +222,21 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
     f32 RealSourceDX, RealSourceDY;
     if (RoundedScaleX > 0)
     {
-        RealSourceDX = (f32)SourceBitmap.Width / (f32)RoundedScaleX;
+        RealSourceDX = (f32)SourceBitmap->Width / (f32)RoundedScaleX;
     }
     else
     {
         RealSourceDX = 1.0f;
-        RoundedScaleX = SourceBitmap.Width;
+        RoundedScaleX = SourceBitmap->Width;
     }
     if (RoundedScaleY > 0)
     {
-        RealSourceDY = (f32)SourceBitmap.Height/ (f32)RoundedScaleY;
+        RealSourceDY = (f32)SourceBitmap->Height/ (f32)RoundedScaleY;
     }
     else
     {
         RealSourceDY = 1.0f;
-        RoundedScaleY = SourceBitmap.Height;
+        RoundedScaleY = SourceBitmap->Height;
     }
 
     if (RealScaledOffsetX < 0.0f) RealScaledOffsetX = 0.0f;
@@ -237,8 +246,6 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
     
     i32 ScaledColumnsToDraw = RoundedScaleX-RoundF32ToI32(RealScaledOffsetX);
     i32 ScaledRowsToDraw = RoundedScaleY-RoundF32ToI32(RealScaledOffsetY);
-
-    i32 PixelsDrawnCount = 0;
 
     f32 RealSourceCursorY = RealSourceOffsetY;
     for (int DestY = DestMinY;
@@ -252,13 +259,13 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
         }
         
         i32 TruncatedSourceCursorY = TruncateF32ToI32(RealSourceCursorY);
-        if (TruncatedSourceCursorY >= SourceBitmap.Height)
+        if (TruncatedSourceCursorY >= SourceBitmap->Height)
         {
-            TruncatedSourceCursorY = SourceBitmap.Height - 1;
+            TruncatedSourceCursorY = SourceBitmap->Height - 1;
         }
         
         u32 *DestPixel = (u32 *)(Destination + RowsDrawn*DestBuffer->Pitch);
-        u32 *SourcePixel = (u32 *)(Source - TruncatedSourceCursorY*SourceBitmap.Pitch);
+        u32 *SourcePixel = (u32 *)(Source - TruncatedSourceCursorY*SourceBitmap->Pitch);
         
         f32 RealSourceCursorX = RealSourceOffsetX;
         for (int DestX = DestMinX;
@@ -272,40 +279,18 @@ DrawBitmap(game_offscreen_buffer *DestBuffer, texture SourceBitmap,
             }
             
             i32 TruncatedSourceCursorX = TruncateF32ToI32(RealSourceCursorX);
-            if (TruncatedSourceCursorX >= SourceBitmap.Width)
+            if (TruncatedSourceCursorX >= SourceBitmap->Width)
             {
-                TruncatedSourceCursorX = SourceBitmap.Width - 1;
+                TruncatedSourceCursorX = SourceBitmap->Width - 1;
             }
             
             *(DestPixel + (DestX-DestMinX)) = *(SourcePixel + TruncatedSourceCursorX);
-            ++PixelsDrawnCount;
             
             RealSourceCursorX += RealSourceDX;
         }
 
         RealSourceCursorY += RealSourceDY;
     }
-
-    int a = 0;
-}
-
-internal void
-DrawWallVerticalSection(game_offscreen_buffer *Buffer,
-                        f32 RealMinX, f32 RealMinY,
-                        f32 RealMaxX, f32 RealMaxY,
-                        texture Texture,
-                        f32 TextureHorizontalPosition)
-{
-    f32 TextureOffsetY = 0.0f;
-    if (RealMinY < 0.0f)
-    {
-        TextureOffsetY = (-RealMinY);
-    }
-    DrawBitmap(Buffer, Texture,
-               RealMinX, RealMinY,
-               RealMaxX, RealMaxY,
-               900.0f, RealMaxY-RealMinY,
-               900.0f*TextureHorizontalPosition, TextureOffsetY);
 }
 
 internal void
@@ -348,6 +333,26 @@ DrawRectangle(game_offscreen_buffer *Buffer,
 
         Row += Buffer->Pitch;
     }
+}
+
+internal void
+DrawWallVerticalSection(game_offscreen_buffer *Buffer,
+                        f32 RealMinX, f32 RealMinY,
+                        f32 RealMaxX, f32 RealMaxY,
+                        texture *Texture,
+                        f32 TextureHorizontalPosition)
+{
+    f32 TextureOffsetY = 0.0f;
+    if (RealMinY < 0.0f)
+    {
+        TextureOffsetY = (-RealMinY);
+    }
+    DrawBitmap(Buffer, Texture,
+               RealMinX, RealMinY,
+               RealMaxX, RealMaxY,
+               900.0f, RealMaxY-RealMinY,
+               900.0f*TextureHorizontalPosition, TextureOffsetY);
+    // DrawRectangle(Buffer, RealMinX, RealMinY, RealMaxX, RealMaxY, 0xFF0000FF, 0xFF0000FF);
 }
 
 internal void
@@ -443,14 +448,15 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
         }
     }
 
-    f32 PlayerDotHalfSize = 5.0f;
+    f32 EntityDotHalfSize = 5.0f;
+    
     f32 PlayerMinimapX = PaddedMinX + State->PlayerX*TileWidth;
     f32 PlayerMinimapY = PaddedMinY + State->PlayerY*TileHeight;
-    f32 PlayerMinX = PlayerMinimapX - PlayerDotHalfSize;
-    f32 PlayerMinY = PlayerMinimapY - PlayerDotHalfSize;
-    f32 PlayerMaxX = PlayerMinimapX + PlayerDotHalfSize;
-    f32 PlayerMaxY = PlayerMinimapY + PlayerDotHalfSize;
-    u32 PlayerColor = 0xFFFF0000;
+    f32 PlayerMinX = PlayerMinimapX - EntityDotHalfSize;
+    f32 PlayerMinY = PlayerMinimapY - EntityDotHalfSize;
+    f32 PlayerMaxX = PlayerMinimapX + EntityDotHalfSize;
+    f32 PlayerMaxY = PlayerMinimapY + EntityDotHalfSize;
+    u32 PlayerColor = 0xFFFF00FF;
     DrawRectangle(Buffer, PlayerMinX, PlayerMinY, PlayerMaxX, PlayerMaxY, PlayerColor, PlayerColor);
 
     for (int RayIndex = 0;
@@ -463,6 +469,15 @@ DEBUGDrawMinimap(game_offscreen_buffer *Buffer,
         f32 LineEndY = PaddedMinY + State->RaycastData[RayIndex].InterceptY * TileHeight;
         DrawLine(Buffer, LineStartX, LineStartY, LineEndX, LineEndY, RaycastHitColor);
     }
+
+    f32 EnemyMinimapX = PaddedMinX + State->EnemyX*TileWidth;
+    f32 EnemyMinimapY = PaddedMinY + State->EnemyY*TileHeight;
+    f32 EnemyMinX = EnemyMinimapX - EntityDotHalfSize;
+    f32 EnemyMinY = EnemyMinimapY - EntityDotHalfSize;
+    f32 EnemyMaxX = EnemyMinimapX + EntityDotHalfSize;
+    f32 EnemyMaxY = EnemyMinimapY + EntityDotHalfSize;
+    u32 EnemyColor = 0xFFFF0000;
+    DrawRectangle(Buffer, EnemyMinX, EnemyMinY, EnemyMaxX, EnemyMaxY, EnemyColor, EnemyColor);
 }
 
 internal ray_data
@@ -644,7 +659,20 @@ CastARay(game_state *State, f32 PlayerAngle, f32 RayAngle)
     }
 
     // bool32 ShouldBreak = AbsoluteF32(Distance - SuperLolDistance) > 0.1f;
+    return Result;
+}
+
+internal ray_to_point
+CastARayToPoint(game_state *State, f32 X1, f32 Y1, f32 X2, f32 Y2)
+{
+    ray_to_point Result = {0};
     
+    f32 dX = X2 - X1;
+    f32 dY = Y1 - Y2;
+
+    Result.Distance = sqrtf(dX*dX + dY*dY);
+    Result.Angle = atan2f(dY, dX);
+
     return Result;
 }
 
@@ -652,9 +680,12 @@ internal void
 GameStateInit(game_state *State)
 {
     State->PlayerX = 1.5f;
-    State->PlayerY = 3.5f;
+    State->PlayerY = 2.5f;
     // State->PlayerAngle = -Pi32/12.0f;
     State->PlayerAngle = 2*Pi32-Pi32/8;
+
+    State->EnemyX = 6.5f;
+    State->EnemyY = 3.5f;
 
     u8 Map[8][8] = {
         { 1, 1, 1, 1,  1, 1, 1, 1 },
@@ -688,6 +719,7 @@ GameStateInit(game_state *State)
 
     RenderData.Textures[0] = LoadBMP("textures/brick.bmp");
     RenderData.Textures[1] = LoadBMP("textures/pumpkin.bmp");
+    RenderData.Textures[2] = LoadBMP("textures/enemy.bmp");
     
     State->RenderData = RenderData;
 }
@@ -794,40 +826,38 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
     f32 ColumnWidth = (f32)Buffer->Width / (f32)RayNumber;
     f32 CurrentColumn = 0.0f;
     f32 ScreenCenter = (f32)Buffer->Height / 2.0f;
-    
-    f32 RayAngle = State->PlayerAngle + Pi32 / 6.0f;
-    f32 FovEnd = State->PlayerAngle - Pi32 / 6.0f;
-    f32 dAngle = (FovEnd - RayAngle) / (f32)RayNumber;
 
+    // NOTE: Start is the smaller angle. Going counterclockwise to the end - the greater angle.
+    // But drawing from left to right, so going clockwise.
+    f32 PlayerFovStart = State->PlayerAngle - Pi32 / 6.0f;
+    f32 PlayerFovEnd = State->PlayerAngle + Pi32 / 6.0f;
+    
+    f32 dAngle = (PlayerFovStart - PlayerFovEnd) / (f32)RayNumber;
+    
+    // TODO: Is this right? What's the reasonable max distance?
+    f32 ColumnHeightConstant = 900.0f;
+
+    f32 RayAngle = PlayerFovEnd;
     for (int RayIndex = 0;
          RayIndex < RayNumber;
          ++RayIndex)
     {
         ray_data RayData = CastARay(State, State->PlayerAngle, RayAngle);
 
-        // Distance: 0.0f >>> MaxDistance
-        // ColumnHeight: Buffer->Height >>> 0.0f;
-        // TODO: Is this right? What's the reasonable max distance?
-        f32 ColumnHeightConstant = 900.0f;
         f32 ColumnHeight = ColumnHeightConstant / RayData.Distance;
-        // if (ColumnHeight > (f32)Buffer->Height)
-        // {
-        //     ColumnHeight = (f32)Buffer->Height;
-        // }
         f32 ColumnMinY = ScreenCenter - ColumnHeight / 2.0f;
         f32 ColumnMaxY = ScreenCenter + ColumnHeight / 2.0f;
         f32 ColumnMinX = CurrentColumn;
         f32 ColumnMaxX = CurrentColumn + ColumnWidth;
         u32 ColumnColor = 0;
-        texture Texture = {0};
         if (RayData.TileX >= 0 && RayData.TileX < 8 &&
             RayData.TileY >= 0 && RayData.TileY < 8)
         {
             ColumnColor = State->MapColors[RayData.TileY][RayData.TileX];
-            Texture = (ColumnColor % 2 == 0) ? State->RenderData.Textures[1] : State->RenderData.Textures[0]; 
+            texture *Texture = (ColumnColor % 2 == 0) ? &State->RenderData.Textures[1] : &State->RenderData.Textures[0]; 
+            DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
+                                    Texture, RayData.HitWallTexturePosition);
         }
-        DrawWallVerticalSection(Buffer, ColumnMinX, ColumnMinY, ColumnMaxX, ColumnMaxY,
-                                Texture, RayData.HitWallTexturePosition);
 
         // if (State->Map[RayData.TileY][RayData.TileX] == 2)
         // {
@@ -843,6 +873,45 @@ GameUpdateAndRender(game_state *State, game_input *Input, game_offscreen_buffer 
 
         RayAngle += dAngle;
         CurrentColumn += ColumnWidth;
+    }
+
+    ray_to_point RayToEnemy = CastARayToPoint(State, State->PlayerX, State->PlayerY, State->EnemyX, State->EnemyY);
+    f32 AngleToEnemy = RayToEnemy.Angle;
+
+    f32 NormalizedPlayerFovStart = PlayerFovStart;
+    if (NormalizedPlayerFovStart < -Pi32)
+    {
+        NormalizedPlayerFovStart += 2.0f*Pi32;
+    }
+    if (NormalizedPlayerFovStart > Pi32)
+    {
+        NormalizedPlayerFovStart -= 2.0f*Pi32;
+    }
+    f32 NormalizedPlayerFovEnd = PlayerFovEnd;
+    if (NormalizedPlayerFovEnd < -Pi32)
+    {
+        NormalizedPlayerFovEnd += 2.0f*Pi32;
+    }
+    if (NormalizedPlayerFovEnd > Pi32)
+    {
+        NormalizedPlayerFovEnd -= 2.0f*Pi32;
+    }
+    DEBUGPrintString("PlayerFovStart: %.02f; NormalizedPlayerFovStart: %.02f; PlayerFovEnd: %.02f; NormalizedPlayerFovEnd: %.02f; AngleToEnemy: %.02f\n",
+                     PlayerFovStart, NormalizedPlayerFovStart, PlayerFovEnd, NormalizedPlayerFovEnd, AngleToEnemy);
+
+sddd    if ((AngleToEnemy >= NormalizedPlayerFovStart) && (AngleToEnemy <= NormalizedPlayerFovEnd))
+    {
+        f32 DistanceToEnemy = RayToEnemy.Distance;
+        f32 SpriteHeight = ColumnHeightConstant / DistanceToEnemy;
+        f32 SpriteMinY = ScreenCenter - SpriteHeight / 2.0f;
+        f32 SpriteMaxY = ScreenCenter + SpriteHeight / 2.0f;
+        f32 SpriteMinX = (f32)Buffer->Width/2.0f - (f32)State->RenderData.Textures[2].Width/2.0f;
+        f32 SpriteMaxX = (f32)Buffer->Width/2.0f + (f32)State->RenderData.Textures[2].Width/2.0f;
+        DrawBitmap(Buffer, &State->RenderData.Textures[2],
+                   SpriteMinX, SpriteMinY,
+                   SpriteMaxX, SpriteMaxY,
+                   SpriteMaxX-SpriteMinX, SpriteMaxY-SpriteMinY,
+                   -1.0f, -1.0f);
     }
 
     f32 MinimapWidth = 450;

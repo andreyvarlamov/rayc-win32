@@ -400,7 +400,7 @@ WinMain(HINSTANCE Instance,
                 ReleaseDC(GlobalWindow, DeviceContext);
 
                 f32 WorkPercent  = WorkSecondsElapsed / SecondsElapsedForFrame * 100.0f;
-                if (WorkPercent > 80.0f)
+                if (WorkPercent > 0.0f)
                 {
                     
                     DEBUGPrintString("Frame=%.2fms; Work=%.2fms(%.0f%%)\n",
